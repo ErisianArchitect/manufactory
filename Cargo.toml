@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/*"]
+
+[package]
+name = "manufactory"
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# Internal
+mfcore = { path = "crates/mfcore", version = "0.1.0" }
+mfdata = { path = "crates/mfdata", version = "0.1.0" }
+mfcontrol = { path = "crates/mfcontrol", version = "0.1.0" }
+
+# External
+paste = "1.0.15"
+
+[dependencies]
+# Internal
+mfcore.workspace = true
+mfdata.workspace = true
+mfcontrol.workspace = true
+
+# External
+paste.workspace = true
+
