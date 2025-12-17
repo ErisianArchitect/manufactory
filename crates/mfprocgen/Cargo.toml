@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Internal
+mfhash.workspace = true
+
+# External
+blake3.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

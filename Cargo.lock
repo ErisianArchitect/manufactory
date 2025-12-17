@@ -107,6 +107,8 @@ version = "0.1.0"
 name = "mfprocgen"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "mfhash",
  "rand",
  "rand_chacha",
 ]

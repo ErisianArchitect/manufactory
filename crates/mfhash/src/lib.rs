@@ -68,6 +68,7 @@ const fn derive_salts<const LEN: usize>() -> [u64; LEN] {
 
 const SALTS: [u64; SALTS_LEN] = derive_salts();
 
+#[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Accumulator {
     accum: u64,
@@ -317,7 +318,8 @@ impl BuildHasher for HashSeed64 {
     }
 }
 
-#[repr(transparent)]
+// align
+#[repr(C, align(32))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HashSeed256([u64; 4]);
 
@@ -475,6 +477,7 @@ const fn mix_lanes(lanes: &mut [u64; 4], index: usize, accum: u64) {
     lanes[3] ^= fast_mix(accum ^ get_mixed_salt(index + 3));
 }
 
+#[repr(C, align(64))]
 pub struct FastHash256 {
     lanes: [u64; 4],
     accum: Accumulator,
@@ -531,12 +534,18 @@ impl FastHash256 {
     }
     
     #[must_use]
-    pub const fn finish(&self) -> [u8; 32] {
+    pub const fn finish_lanes(&self) -> [u64; 4] {
         let mut lanes = self.lanes;
         if self.accum.count != 0 {
             mix_lanes(&mut lanes, self.index, self.accum.finish());
         }
-        lanes_to_bytes(lanes)
+        lanes
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn finish(&self) -> [u8; 32] {
+        lanes_to_bytes(self.finish_lanes())
     }
     
     #[must_use]

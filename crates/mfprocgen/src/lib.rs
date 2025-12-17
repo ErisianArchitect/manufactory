@@ -1,14 +1,12 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod world_seed;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/* What do I need?
+This procedural generation library will be made specifically for manufactory.
+That means that it doesn't need to be entirely general purpose.
+It can be purpose built.
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+A way to produce deterministic, platform independent 32-bit seeds from hashable values: done
+Noise generation: TBD
+Regional ID system
+
+*/
