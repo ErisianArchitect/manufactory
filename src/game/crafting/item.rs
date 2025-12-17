@@ -128,6 +128,10 @@ make_item_type!(
             text: "Iron Ore",
             id: res_id!(Iron, Ore),
         },
+        IronOreCrushed {
+            text: "Iron Ore (Crushed)",
+            id: res_id!(Iron, IngotPrecursor),
+        },
         // TODO: IronIngot precursor
         IronIngot {
             text: "Iron Ingot",
@@ -213,6 +217,10 @@ make_item_type!(
             text: "Copper Ore",
             id: res_id!(Copper, Ore),
         },
+        CopperOreCrushed {
+            text: "Copper Ore (Crushed)",
+            id: res_id!(Copper, IngotPrecursor),
+        },
         // TODO: CopperIngot precursor 
         CopperIngot {
             text: "Copper Ingot",
@@ -254,77 +262,77 @@ make_item_type!(
         /// Alluminum Ore
         Bauxite {
             text: "Bauxite",
-            id: res_id!(3, Ore),
+            id: res_id!(Alluminum, Ore),
         },
         Allumina {
             text: "Allumina",
-            id: res_id!(3, IngotPrecursor),
+            id: res_id!(Alluminum, IngotPrecursor),
         },
         AlluminumIngot {
             text: "Alluminum Ingot",
-            id: res_id!(3, Ingot),
+            id: res_id!(Alluminum, Ingot),
         },
         AlluminumCube {
             text: "Alluminum Cube",
-            id: res_id!(3, Cube),
+            id: res_id!(Alluminum, Cube),
         },
         AlluminumKiloCube {
             text: "Alluminum KiloCube",
-            id: res_id!(3, KiloCube),
+            id: res_id!(Alluminum, KiloCube),
         },
         AlluminumMegaCube {
             text: "Alluminum MegaCube",
-            id: res_id!(3, MegaCube),
+            id: res_id!(Alluminum, MegaCube),
         },
         AlluminumGigaCube {
             text: "Alluminum GigaCube",
-            id: res_id!(3, GigaCube),
+            id: res_id!(Alluminum, GigaCube),
         },
         AlluminumRod {
             text: "Alluminum Rod",
-            id: res_id!(3, Rod),
+            id: res_id!(Alluminum, Rod),
         },
         AlluminumScrews {
             text: "Allumium Screws",
-            id: res_id!(3, Screws),
+            id: res_id!(Alluminum, Screws),
         },
         AlluminumSheet {
             text: "Alluminum Sheet",
-            id: res_id!(3, Sheet),
+            id: res_id!(Alluminum, Sheet),
         },
         AlluminumPlate {
             text: "Alluminum Plate",
-            id: res_id!(3, Plate),
+            id: res_id!(Alluminum, Plate),
         },
         
         // Crystals begin at section 1024
         Quartz {
             text: "Quartz",
-            id: res_id!(1024, Ore),
+            id: res_id!(Quartz, Ore),
         },
         QuartzPowder {
             text: "Quartz Powder",
-            id: res_id!(1024, IngotPrecursor),
+            id: res_id!(Quartz, IngotPrecursor),
         },
         QuartzIngot {
             text: "Quartz Ingot",
-            id: res_id!(1024, Ingot),
+            id: res_id!(Quartz, Ingot),
         },
         QuartzCube {
             text: "Quartz Cube",
-            id: res_id!(1024, Cube),
+            id: res_id!(Quartz, Cube),
         },
         QuartzKiloCube {
             text: "Quartz KiloCube",
-            id: res_id!(1024, KiloCube),
+            id: res_id!(Quartz, KiloCube),
         },
         QuartzMegaCube {
             text: "Quartz MegaCube",
-            id: res_id!(1024, MegaCube),
+            id: res_id!(Quartz, MegaCube),
         },
         QuartzGigaCube {
             text: "Quartz GigaCube",
-            id: res_id!(1024, GigaCube),
+            id: res_id!(Quartz, GigaCube),
         },
     }
 );
@@ -336,13 +344,19 @@ pub struct ItemData {
 impl ItemData {
     #[inline]
     #[must_use]
-    pub const fn text(&self) -> &'static str {
-        self.item_type.text()
+    pub const fn item_type(&self) -> ItemType {
+        self.item_type
     }
     
     #[inline]
     #[must_use]
-    pub const fn id(&self) -> u32 {
-        self.item_type.id()
+    pub const fn text(&self) -> &'static str {
+        self.item_type().display()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn id(&self) -> ItemId {
+        self.item_type().id()
     }
 }

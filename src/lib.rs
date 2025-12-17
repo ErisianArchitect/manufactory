@@ -1,4 +1,5 @@
 pub use mfcore;
+pub use mfhash as hash;
 pub mod game;
 /*
 World:
