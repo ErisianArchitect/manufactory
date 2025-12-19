@@ -1,8 +1,194 @@
 #![allow(unused)]
 use ::core::hash::Hash;
-use mfhash::*;
+use mfhash::{deterministic::DeterministicHash, *};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum HasherInit {
+    #[default]
+    Default,
+    Keyed([u8; 32]),
+    Derived(&'static str),
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HashSeed(HasherInit);
+
+impl HashSeed {
+    #[inline]
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(HasherInit::Default)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn keyed(key: [u8; 32]) -> Self {
+        Self(HasherInit::Keyed(key))
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn derived(context: &'static str) -> Self {
+        Self(HasherInit::Derived(context))
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn derive_keyed(key_material: &[u8], context: Option<&'static str>) -> Self {
+        let key = blake3::derive_key(context.unwrap_or(""), key_material);
+        Self::keyed(key)
+    }
+    
+    /// Hash `value` with the default DeterministicHasher (`Blake3Hasher::new()`).
+    #[must_use]
+    pub fn default_hashed<T: DeterministicHash>(value: T) -> Self {
+        let mut hasher = Blake3Hasher::new();
+        value.deterministic_hash(&mut hasher);
+        let bytes: [u8; 32] = hasher.finalize_bytes();
+        Self::derive_keyed(&bytes, Some("__default__"))
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn build_hasher(self) -> Blake3Hasher {
+        match self.0 {
+            HasherInit::Default => Blake3Hasher::new(),
+            HasherInit::Keyed(key) => Blake3Hasher::new_keyed(&key),
+            HasherInit::Derived(context) => Blake3Hasher::new_derive_key(context),
+        }
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash<T: DeterministicHash>(self, value: T) -> Blake3Hasher {
+        let mut hasher = self.build_hasher();
+        value.deterministic_hash(&mut hasher);
+        hasher
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_bytes<T: DeterministicHash, const LEN: usize>(self, value: T) -> [u8; LEN] {
+        self.hash(value).finalize_bytes()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u8<T: DeterministicHash>(self, value: T) -> u8 {
+        self.hash(value).finalize_u8()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u16<T: DeterministicHash>(self, value: T) -> u16 {
+        self.hash(value).finalize_u16()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u32<T: DeterministicHash>(self, value: T) -> u32 {
+        self.hash(value).finalize_u32()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u64<T: DeterministicHash>(self, value: T) -> u64 {
+        self.hash(value).finalize_u64()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u128<T: DeterministicHash>(self, value: T) -> u128 {
+        self.hash(value).finalize_u128()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i8<T: DeterministicHash>(self, value: T) -> i8 {
+        self.hash(value).finalize_i8()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i16<T: DeterministicHash>(self, value: T) -> i16 {
+        self.hash(value).finalize_i16()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i32<T: DeterministicHash>(self, value: T) -> i32 {
+        self.hash(value).finalize_i32()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i64<T: DeterministicHash>(self, value: T) -> i64 {
+        self.hash(value).finalize_i64()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i128<T: DeterministicHash>(self, value: T) -> i128 {
+        self.hash(value).finalize_i128()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_bool<T: DeterministicHash>(self, value: T) -> bool {
+        self.hash(value).finalize_bool()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn reseed<T: DeterministicHash>(self, value: T) -> Self {
+        Self::keyed(self.hash_bytes(value))
+    }
+}
+
+pub struct Hex<'a>(pub &'a [u8]);
+
+impl<'a> ::std::fmt::Display for Hex<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut accum = 0u64;
+        for offset in (0..(self.0.len() - (self.0.len() % 8))).step_by(8) {
+            for i in 0..8 {
+                let byte = self.0[offset + i];
+                let shift = 7 - i;
+                accum |= ((byte as u64) << (shift * 8));
+            }
+            write!(f, "{accum:016x}")?;
+            accum = 0;
+        }
+        let remainder = self.0.len() % 8;
+        for byte_offset in (self.0.len() - remainder)..self.0.len() {
+            let byte = self.0[byte_offset];
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mfhash::deterministic::DeterministicHash;
+
+    use super::*;
+    
+    #[test]
+    fn hash_seed_test() {
+        
+        // let seed = HashSeed::derived("The quick brown fox jumps over the lazy dog.");
+        let seed = HashSeed::default_hashed(("test", [420, 69, 1337]));
+        let mut hasher = seed.build_hasher();
+        let value = (1, 2, 3);
+        value.deterministic_hash(&mut hasher);
+        let hash: [u8; 32] = hasher.finalize_bytes();
+        println!("{}", Hex(&hash));
+        println!("{hash:02x?}");
+    }
+}
 
 // #[repr(transparent)]
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -1,78 +1,5 @@
 use std::{any::TypeId, ffi::{CStr, CString}};
 
-#[repr(C, align(8))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Hash([u8; 32]);
-
-impl Hash {
-    #[inline]
-    #[must_use]
-    pub const fn new(hash: [u8; 32]) -> Self {
-        Self(hash)
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn inner(self) -> [u8; 32] {
-        self.0
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn as_bytes_array(&self) -> &[u8; 32] {
-        &self.0
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn hash64(self) -> u64 {
-        let lanes = crate::bytes_to_lanes(&self.0);
-        crate::mix_lanes(lanes)
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn hash32(self) -> u32 {
-        let hash64 = self.hash64();
-        let low = hash64 as u32;
-        let high = (hash64 >> 32) as u32;
-        low ^ high.rotate_left(13)
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn hash16(self) -> u16 {
-        let hash32 = self.hash32();
-        let low = hash32 as u16;
-        let high = (hash32 >> 16) as u16;
-        low ^ high.rotate_left(7)
-    }
-    
-    #[inline]
-    #[must_use]
-    pub const fn hash8(self) -> u8 {
-        let hash16 = self.hash16();
-        let low = hash16 as u8;
-        let high = (hash16 >> 8) as u8;
-        low ^ high.rotate_left(3)
-    }
-}
-
-impl ::std::fmt::Display for Hash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for &byte in &self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
-    }
-}
-
 pub trait DeterministicHasher {
     fn write(&mut self, input: &[u8]);
     
@@ -168,7 +95,7 @@ pub trait DeterministicHasher {
         self.write(cs.to_bytes());
     }
     
-    fn finish(&self) -> Hash;
+    fn finish(&self) -> [u8; 32];
 }
 
 pub trait DeterministicHash {
@@ -479,7 +406,7 @@ mod tests {
         // (0u32).deterministic_hash(hasher);
         let mut hasher = crate::Blake3Hasher::new();
         ([1u128, 2u128, 3u128], (true, 1, b"test"), [0u8; 4].as_slice()).deterministic_hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = hasher.finalize();
         println!("Hash: {hash}");
     }
 }

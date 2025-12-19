@@ -22,7 +22,7 @@ pub fn main() {
     for i in 0..ITERATIONS {
         let mut hasher = Blake3Hasher::new();
         (1, 2, 3, i).deterministic_hash(&mut hasher);
-        let hash = hasher.finish_u64();
+        let hash = hasher.finalize_u64();
         track_collision(hash);
         if (i % ONE_PERCENT_ITERATIONS) == 0 {
             let percent = i / ONE_PERCENT_ITERATIONS;

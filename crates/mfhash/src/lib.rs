@@ -1,5 +1,5 @@
 pub mod deterministic;
-use blake3::Hash;
+// use blake3::Hash;
 use deterministic::DeterministicHasher;
 
 use crate::deterministic::DeterministicHash;
@@ -98,12 +98,6 @@ pub(crate) const fn mix_lanes(input: [u64; 4]) -> u64 {
     mix_two(mix_two(input[0], input[1]), mix_two(input[2], input[3]))
 }
 
-#[inline]
-#[must_use]
-pub(crate) const fn xor_lanes(input: [u64; 4]) -> u64 {
-    input[0] ^ input[1] ^ input[2] ^ input[3]
-}
-
 pub const GOLDEN_RATIO_64: u64 = 0x9e3779b97f4a7c15;
 pub const DEADBEEF_64: u64 = 0xDEADBEEF;
 
@@ -143,35 +137,90 @@ impl Blake3Hasher {
         self
     }
     
-    pub fn finish(&self) -> blake3::Hash {
+    pub fn finalize(&self) -> blake3::Hash {
         self.hasher.finalize()
     }
     
-    pub fn finish_u64(&self) -> u64 {
-        let hash = self.finish();
-        let lanes = crate::bytes_to_lanes(hash.as_bytes());
-        crate::mix_lanes(lanes)
+    pub fn finalize_xof(&self) -> blake3::OutputReader {
+        self.hasher.finalize_xof()
     }
     
-    pub fn finish_u32(&self) -> u32 {
-        let hash64 = self.finish_u64();
-        let low = hash64 as u32;
-        let high = (hash64 >> 32) as u32;
-        low ^ high.rotate_left(13)
+    pub fn finalize_bytes<const LEN: usize>(&self) -> [u8; LEN] {
+        let mut bytes = [0u8; LEN];
+        let mut reader = self.hasher.finalize_xof();
+        reader.fill(&mut bytes);
+        bytes
     }
     
-    pub fn finish_u16(&self) -> u16 {
-        let hash32 = self.finish_u32();
-        let low = hash32 as u16;
-        let high = (hash32 >> 16) as u16;
-        low ^ high.rotate_left(7)
+    #[inline]
+    #[must_use]
+    pub fn finalize_u128(&self) -> u128 {
+        u128::from_be_bytes(self.finalize_bytes())
     }
     
-    pub fn finish_u8(&self) -> u8 {
-        let hash16 = self.finish_u16();
-        let low = hash16 as u8;
-        let high = (hash16 >> 8) as u8;
-        low ^ high.rotate_left(3)
+    #[inline]
+    #[must_use]
+    pub fn finalize_u64(&self) -> u64 {
+        u64::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_u32(&self) -> u32 {
+        u32::from_be_bytes(self.finalize_bytes())
+        
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_u16(&self) -> u16 {
+        u16::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_u8(&self) -> u8 {
+        u8::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_i128(&self) -> i128 {
+        i128::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_i64(&self) -> i64 {
+        i64::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_i32(&self) -> i32 {
+        i32::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_i16(&self) -> i16 {
+        i16::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_i8(&self) -> i8 {
+        i8::from_be_bytes(self.finalize_bytes())
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn finalize_bool(&self) -> bool {
+        let byte = self.finalize_u8();
+        let step1 = (byte ^ (byte >> 4)) & 0xF;
+        let step2 = (step1 ^ (step1 >> 2)) & 0x3;
+        let step3 = (step2 ^ (step2 >> 1)) & 0b1;
+        step3 == 1
     }
 }
 
@@ -180,42 +229,77 @@ impl DeterministicHasher for Blake3Hasher {
         self.update(input);
     }
     
-    fn finish(&self) -> deterministic::Hash {
-        let hash = self.finish();
-        deterministic::Hash::new(hash.into())
+    fn finish(&self) -> [u8; 32] {
+        self.finalize_bytes()
     }
+}
+
+#[must_use]
+pub fn deterministic_hash<T: DeterministicHash>(value: T) -> Blake3Hasher {
+    let mut hasher = Blake3Hasher::new();
+    value.deterministic_hash(&mut hasher);
+    hasher
 }
 
 #[inline]
 #[must_use]
-pub fn deterministic_hash256<T: DeterministicHash>(value: T) -> deterministic::Hash {
-    let mut hasher = Blake3Hasher::new();
-    value.deterministic_hash(&mut hasher);
-    DeterministicHasher::finish(&hasher)
+pub fn deterministic_hash_xof<T: DeterministicHash>(value: T) -> blake3::OutputReader {
+    deterministic_hash(value).finalize_xof()
 }
 
-#[inline(always)]
+#[inline]
 #[must_use]
-pub fn deterministic_hash64<T: DeterministicHash>(value: T) -> u64 {
-    deterministic_hash256(value).hash64()
+pub fn deterministic_hash_bytes<T: DeterministicHash, const LEN: usize>(value: T) -> [u8; LEN] {
+    deterministic_hash(value).finalize_bytes()
 }
 
-#[inline(always)]
+#[inline]
 #[must_use]
-pub fn deterministic_hash32<T: DeterministicHash>(value: T) -> u32 {
-    deterministic_hash256(value).hash32()
+pub fn deterministic_hash_bytes_into<T: DeterministicHash>(value: T, buf: &mut [u8]) {
+    let mut reader = deterministic_hash_xof(value);
+    reader.fill(buf);
 }
 
-#[inline(always)]
+#[inline]
 #[must_use]
-pub fn deterministic_hash16<T: DeterministicHash>(value: T) -> u16 {
-    deterministic_hash256(value).hash16()
+pub fn deterministic_hash256<T: DeterministicHash>(value: T) -> [u8; 32] {
+    deterministic_hash_bytes(value)
 }
 
-#[inline(always)]
+#[inline]
 #[must_use]
-pub fn deterministic_hash8<T: DeterministicHash>(value: &T) -> u8 {
-    deterministic_hash256(value).hash8()
+pub fn deterministic_hash_u128<T: DeterministicHash>(value: T) -> u128 {
+    deterministic_hash(value).finalize_u128()
+}
+
+#[inline]
+#[must_use]
+pub fn deterministic_hash_u64<T: DeterministicHash>(value: T) -> u64 {
+    deterministic_hash(value).finalize_u64()
+}
+
+#[inline]
+#[must_use]
+pub fn deterministic_hash_u32<T: DeterministicHash>(value: T) -> u32 {
+    deterministic_hash(value).finalize_u32()
+}
+
+#[inline]
+#[must_use]
+pub fn deterministic_hash_u16<T: DeterministicHash>(value: T) -> u16 {
+    deterministic_hash(value).finalize_u16()
+}
+
+#[inline]
+#[must_use]
+pub fn deterministic_hash_u8<T: DeterministicHash>(value: T) -> u8 {
+    deterministic_hash(value).finalize_u8()
+}
+
+#[inline]
+#[must_use]
+pub fn deterministic_hash_bool<T: DeterministicHash>(value: T) -> bool {
+    deterministic_hash(value).finalize_bool()
 }
 
 #[cfg(test)]
@@ -240,17 +324,22 @@ mod tests {
             )
         );
         
-        let hash256 = deterministic_hash256(&value);
-        let hash64 = deterministic_hash64(&value);
-        let hash32 = deterministic_hash32(&value);
-        let hash16 = deterministic_hash16(&value);
-        let hash8 = deterministic_hash8(&value);
+        let hash_512: [u8; 64] = deterministic_hash_bytes(&value);
+        let hash256: [u8; 32] = deterministic_hash_bytes(&value);
+        let hash64 = deterministic_hash_u64(&value);
+        let hash32 = deterministic_hash_u32(&value);
+        let hash16 = deterministic_hash_u16(&value);
+        let hash8 = deterministic_hash_u8(&value);
+        let hash_bool = deterministic_hash_bool(&value);
         
-        println!("256: {hash256}");
-        println!(" 64: {hash64:016x}");
-        println!(" 32: {hash32:08x}");
-        println!(" 16: {hash16:04x}");
-        println!("  8: {hash8:02x}");
+        println!(" 512: {hash_512:x?}");
+        println!(" 256: {hash256:x?}");
+        println!("  64: {hash64:016x}");
+        println!("  32: {hash32:08x}");
+        println!("  16: {hash16:04x}");
+        println!("   8: {hash8:02x}");
+        println!("bool: {hash_bool}");
+        println!(" i32: {}", deterministic_hash(&value).finalize_i32());
     }
     
     #[test]
@@ -273,7 +362,7 @@ mod tests {
         for i in 0..ITERATIONS {
             let mut hasher = Blake3Hasher::new();
             (1, 2, 3, i).deterministic_hash(&mut hasher);
-            let hash = hasher.finish_u64();
+            let hash = hasher.finalize_u64();
             track_collision(hash);
         }
         let collision_ratio = total_collisions as f64 / ITERATIONS as f64;
