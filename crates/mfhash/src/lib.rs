@@ -4,108 +4,17 @@ use deterministic::DeterministicHasher;
 
 use crate::deterministic::DeterministicHash;
 
-// #[macro_export]
-// macro_rules! int_writers {
-//     () => {
-//         $crate::int_writers!(
-//             write_u8(u8);
-//             write_u16(u16);
-//             write_u32(u32);
-//             write_u64(u64);
-//             write_u128(u128);
-//             write_i8(i8);
-//             write_i16(i16);
-//             write_i32(i32);
-//             write_i64(i64);
-//             write_i128(i128);
-//         );
-//     };
-//     ($func_name:ident($type:ty)) => {
-//         fn $func_name(&mut self, i: $type) {
-//             let bytes = i.to_le_bytes();
-//             self.update(&bytes);
-//         }
-//     };
-//     ($(
-//         $func_name:ident($type:ty);
-//     )+) => {
-//         $(
-//             $crate::int_writers!($func_name($type));
-//         )*
-//     };
-// }
-
-// #[inline]
-// #[must_use]
-// #[cfg(target_endian = "little")]
-// pub(crate) const fn lanes_to_bytes(lanes: [u64; 4]) -> [u8; 32] {
-//     // since we want little endian bytes, and the target platform
-//     // is little endian, we can just transmute.
-//     unsafe {
-//         ::core::mem::transmute(lanes)
-//     }
-// }
-
-// #[inline]
-// #[must_use]
-// #[cfg(target_endian = "big")]
-// pub(crate) const fn lanes_to_bytes(lanes: [u64; 4]) -> [u8; 32] {
-//     let mut bytes = [0u8; 32];
-//     macro_rules! write_lane {
-//         ($index:literal) => {
-//             {
-//                 let index: usize = $index;
-//                 let offset = (index * 8);
-//                 // must ALWAYS use `to_le_bytes` to ensure compatibility across platforms.
-//                 let lane_bytes = lanes[index].to_le_bytes();
-//                 unsafe {
-//                     ::core::ptr::copy_nonoverlapping(lane_bytes.as_ptr(), bytes.as_mut_ptr().add(offset), 8);
-//                 }
-//             }
-//         };
-//     }
-//     write_lane!(0);
-//     write_lane!(1);
-//     write_lane!(2);
-//     write_lane!(3);
-//     bytes
-// }
-
-#[inline]
-#[must_use]
-pub(crate) const fn bytes_to_lanes(input: &[u8; 32]) -> [u64; 4] {
-    let mut lanes = [0u64; 4];
-    let mut index = 0;
-    while index < 4 {
-        let mut bytes = [0u8; 8];
-        unsafe {
-            ::core::ptr::copy_nonoverlapping(input.as_ptr().add(index * 8), bytes.as_mut_ptr(), 8);
-        }
-        lanes[index] = u64::from_le_bytes(bytes);
-        index += 1;
-    }
-    lanes
-}
-
-#[inline]
-#[must_use]
-pub(crate) const fn mix_lanes(input: [u64; 4]) -> u64 {
-    #[inline(always)]
-    const fn mix_two(a: u64, b: u64) -> u64 {
-        a ^ b.rotate_left(23)
-    }
-    
-    mix_two(mix_two(input[0], input[1]), mix_two(input[2], input[3]))
-}
-
 pub const GOLDEN_RATIO_64: u64 = 0x9e3779b97f4a7c15;
 pub const DEADBEEF_64: u64 = 0xDEADBEEF;
 
+/// A wrapper for [blake3::Hasher].
+#[derive(Clone)]
 pub struct Blake3Hasher {
     pub hasher: blake3::Hasher,
 }
 
 impl Blake3Hasher {
+    /// Create a new [Blake3Hasher] from an existing [blake3::Hasher].
     #[inline]
     #[must_use]
     pub fn from_hasher(hasher: blake3::Hasher) -> Self {
@@ -114,37 +23,49 @@ impl Blake3Hasher {
         }
     }
     
+    /// Construct a new [Blake3Hasher] for the regular hash function.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
         Self::from_hasher(blake3::Hasher::new())
     }
     
+    /// Construct a new [Blake3Hasher] for the keyed hash function.
+    /// See [blake3::keyed_hash].
     #[inline]
     #[must_use]
     pub fn new_keyed(key: &[u8; 32]) -> Self {
         Self::from_hasher(blake3::Hasher::new_keyed(key))
     }
     
+    /// Construct a new [Blake3Hasher] for the key derivation
+    /// function. See derive_key. The context string should be
+    /// hardcoded, globally unique, and application-specific.
     #[inline]
     #[must_use]
     pub fn new_derive_key(context: &str) -> Self {
         Self::from_hasher(blake3::Hasher::new_derive_key(context))
     }
     
+    #[inline]
     pub fn update(&mut self, input: &[u8]) -> &mut Self {
         self.hasher.update(input);
         self
     }
     
+    #[inline]
+    #[must_use]
     pub fn finalize(&self) -> blake3::Hash {
         self.hasher.finalize()
     }
     
+    #[inline]
+    #[must_use]
     pub fn finalize_xof(&self) -> blake3::OutputReader {
         self.hasher.finalize_xof()
     }
     
+    #[must_use]
     pub fn finalize_bytes<const LEN: usize>(&self) -> [u8; LEN] {
         let mut bytes = [0u8; LEN];
         let mut reader = self.hasher.finalize_xof();
@@ -234,6 +155,193 @@ impl DeterministicHasher for Blake3Hasher {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum HasherInit {
+    #[default]
+    Default,
+    Keyed([u8; 32]),
+    Derived(&'static str),
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HashSeed(HasherInit);
+
+impl HashSeed {
+    #[inline]
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(HasherInit::Default)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn keyed(key: [u8; 32]) -> Self {
+        Self(HasherInit::Keyed(key))
+    }
+    
+    #[inline]
+    #[must_use]
+    pub const fn derived(context: &'static str) -> Self {
+        Self(HasherInit::Derived(context))
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn derive_keyed(key_material: &[u8], context: Option<&str>) -> Self {
+        let key = blake3::derive_key(context.unwrap_or(""), key_material);
+        Self::keyed(key)
+    }
+    
+    /// Feed `hash_material` into a `new_derive_key` [Blake3Hasher] with the given `context`
+    /// then use the hash as the input to [Self::keyed].
+    #[must_use]
+    pub fn derive_keyed_hash<T: DeterministicHash>(hash_material: T, context: Option<&str>) -> Self {
+        let mut hasher = Blake3Hasher::new_derive_key(context.unwrap_or(""));
+        hash_material.deterministic_hash(&mut hasher);
+        let key_material: [u8; 32] = hasher.finalize_bytes();
+        Self::keyed(key_material)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn build_hasher(self) -> Blake3Hasher {
+        match self.0 {
+            HasherInit::Default => Blake3Hasher::new(),
+            HasherInit::Keyed(key) => Blake3Hasher::new_keyed(&key),
+            HasherInit::Derived(context) => Blake3Hasher::new_derive_key(context),
+        }
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash<T: DeterministicHash>(self, value: T) -> Blake3Hasher {
+        let mut hasher = self.build_hasher();
+        value.deterministic_hash(&mut hasher);
+        hasher
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_bytes<T: DeterministicHash, const LEN: usize>(self, value: T) -> [u8; LEN] {
+        self.hash(value).finalize_bytes()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_512<T: DeterministicHash>(self, value: T) -> [u8; 64] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_256<T: DeterministicHash>(self, value: T) -> [u8; 32] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_128<T: DeterministicHash>(self, value: T) -> [u8; 16] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_64<T: DeterministicHash>(self, value: T) -> [u8; 8] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_32<T: DeterministicHash>(self, value: T) -> [u8; 4] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_16<T: DeterministicHash>(self, value: T) -> [u8; 2] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_8<T: DeterministicHash>(self, value: T) -> [u8; 1] {
+        self.hash_bytes(value)
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u8<T: DeterministicHash>(self, value: T) -> u8 {
+        self.hash(value).finalize_u8()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u16<T: DeterministicHash>(self, value: T) -> u16 {
+        self.hash(value).finalize_u16()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u32<T: DeterministicHash>(self, value: T) -> u32 {
+        self.hash(value).finalize_u32()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u64<T: DeterministicHash>(self, value: T) -> u64 {
+        self.hash(value).finalize_u64()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_u128<T: DeterministicHash>(self, value: T) -> u128 {
+        self.hash(value).finalize_u128()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i8<T: DeterministicHash>(self, value: T) -> i8 {
+        self.hash(value).finalize_i8()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i16<T: DeterministicHash>(self, value: T) -> i16 {
+        self.hash(value).finalize_i16()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i32<T: DeterministicHash>(self, value: T) -> i32 {
+        self.hash(value).finalize_i32()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i64<T: DeterministicHash>(self, value: T) -> i64 {
+        self.hash(value).finalize_i64()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_i128<T: DeterministicHash>(self, value: T) -> i128 {
+        self.hash(value).finalize_i128()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn hash_bool<T: DeterministicHash>(self, value: T) -> bool {
+        self.hash(value).finalize_bool()
+    }
+    
+    #[inline]
+    #[must_use]
+    pub fn reseed_hashed<T: DeterministicHash>(self, value: T, context: Option<&'static str>) -> Self {
+        let initial_hash: [u8; 32] = self.hash_bytes(value);
+        Self::derive_keyed(&initial_hash, context)
+    }
+}
+
 #[must_use]
 pub fn deterministic_hash<T: DeterministicHash>(value: T) -> Blake3Hasher {
     let mut hasher = Blake3Hasher::new();
@@ -310,6 +418,65 @@ mod tests {
     use crate::deterministic::DeterministicHash;
 
     use super::*;
+    
+    pub struct Hex<'a>(pub &'a [u8]);
+
+    impl<'a> ::std::fmt::Display for Hex<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let mut accum = 0u64;
+            for offset in (0..(self.0.len() - (self.0.len() % 8))).step_by(8) {
+                for i in 0..8 {
+                    let byte = self.0[offset + i];
+                    let shift = 7 - i;
+                    accum |= ((byte as u64) << (shift * 8));
+                }
+                write!(f, "{accum:016x}")?;
+                accum = 0;
+            }
+            let remainder = self.0.len() % 8;
+            for byte_offset in (self.0.len() - remainder)..self.0.len() {
+                let byte = self.0[byte_offset];
+                write!(f, "{byte:02x}")?;
+            }
+            Ok(())
+        }
+    }
+    
+    #[test]
+    fn seed_test() {
+        let value = (
+            [
+                320369376680612223064810791401941969759u128,
+                55725990887747919519416966485785057799u128,
+                282443446514692528122939205031640808003u128,
+            ],
+            ("region", "Z1-0436"),
+            ("tick", 152125),
+        );
+        let (hash1_a, hash1_b) = {
+            let root_seed = HashSeed::derive_keyed(b"hello", None);
+            (
+                root_seed.hash_256(&value),
+                {
+                    let sub_seed = root_seed.reseed_hashed([420i32, 69, 80082], None);
+                    sub_seed.hash_256(&value)
+                }
+            )
+        };
+        let (hash2_a, hash2_b) = {
+            let root_seed = HashSeed::derive_keyed(b"hello", None);
+            (
+                root_seed.hash_256(&value),
+                {
+                    let sub_seed = root_seed.reseed_hashed([420i32, 69, 80082], None);
+                    sub_seed.hash_256(&value)
+                }
+            )
+        };
+        assert_eq!((hash1_a, hash1_b), (hash2_a, hash2_b));
+        println!("{}", Hex(&hash1_a));
+        println!("{}", Hex(&hash1_b));
+    }
     
     #[test]
     fn deterministic_hasher_test() {

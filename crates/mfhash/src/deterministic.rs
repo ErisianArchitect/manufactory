@@ -34,7 +34,7 @@ pub trait DeterministicHasher {
     
     #[inline]
     fn write_usize(&mut self, input: usize) {
-        self.write_u128(input as u128);
+        self.write_u64(input as u64);
     }
     
     #[inline]
@@ -68,7 +68,7 @@ pub trait DeterministicHasher {
     
     #[inline]
     fn write_isize(&mut self, input: isize) {
-        self.write_i128(input as i128);
+        self.write_i64(input as i64);
     }
     
     #[inline]

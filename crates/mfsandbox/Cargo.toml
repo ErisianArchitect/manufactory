@@ -1,0 +1,8 @@
+[package]
+name = "mfsandbox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mfhash.workspace = true
+mffmt.workspace = true
