@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 
 #[inline(always)]
-const fn size_align_eq<L, R>() -> bool {
+const fn size_align_eq<L: Sized, R: Sized>() -> bool {
     const {
         size_of::<L>() == size_of::<R>()
         && align_of::<L>() == align_of::<R>()
@@ -11,7 +11,7 @@ const fn size_align_eq<L, R>() -> bool {
 
 #[inline(always)]
 #[track_caller]
-const unsafe fn cast_mut_slice<'a, Src, Dst>(src: &'a mut [Src]) -> &'a mut [Dst] {
+const unsafe fn cast_mut_slice<'a, Src: Sized, Dst: Sized>(src: &'a mut [Src]) -> &'a mut [Dst] {
     const {
         if !size_align_eq::<Src, Dst>() {
             panic!("Size and Alignment of Src and Dst must match.");
@@ -321,16 +321,15 @@ int_decode_impls!(
     read_u32 -> u32
     read_u64 -> u64
     read_u128 -> u128
-    read_usize -> usize
     
     read_i8 -> i8
     read_i16 -> i16
     read_i32 -> i32
     read_i64 -> i64
     read_i128 -> i128
+    
+    read_usize -> usize
     read_isize -> isize
-    
-    
 );
 
 impl<T> Decode for (T,)
