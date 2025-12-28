@@ -33,7 +33,7 @@ pub fn decoder_read_value<
 >(
     decoder: &mut D,
     f: F,
-) -> Result<T, D::Error> {
+) -> Result<T, DecodeError<D::Error>> {
     let mut buf = [0u8; LEN];
     decoder.read_exact(&mut buf)?;
     Ok(f(buf))
@@ -45,11 +45,11 @@ pub fn decoder_read_value<
 pub fn decoder_read_vec<
     D: Decoder,
     T,
-    F: Fn(&mut D) -> Result<T, D::Error>,
+    F: Fn(&mut D) -> Result<T, DecodeError<D::Error>>,
 >(
     decoder: &mut D,
     f: F,
-) -> Result<Vec<T>, D::Error> {
+) -> Result<Vec<T>, DecodeError<D::Error>> {
     let capacity = decoder.read_usize()?;
     let mut buf = Vec::with_capacity(capacity);
     for _ in 0..capacity {
@@ -96,115 +96,113 @@ impl<E> DecodeError<E> {
 
 pub trait Decoder: Sized {
     type Error;
-    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Self::Error>;
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), DecodeError<Self::Error>>;
     
-    fn read_u8(&mut self) -> Result<u8, Self::Error> {
+    fn read_u8(&mut self) -> Result<u8, DecodeError<Self::Error>> {
         decoder_read_value(self, u8::from_be_bytes)
     }
     
-    fn read_u16(&mut self) -> Result<u16, Self::Error> {
+    fn read_u16(&mut self) -> Result<u16, DecodeError<Self::Error>> {
         decoder_read_value(self, u16::from_be_bytes)
     }
     
-    fn read_u32(&mut self) -> Result<u32, Self::Error> {
+    fn read_u32(&mut self) -> Result<u32, DecodeError<Self::Error>> {
         decoder_read_value(self, u32::from_be_bytes)
     }
     
-    fn read_u64(&mut self) -> Result<u64, Self::Error> {
+    fn read_u64(&mut self) -> Result<u64, DecodeError<Self::Error>> {
         decoder_read_value(self, u64::from_be_bytes)
     }
     
-    fn read_u128(&mut self) -> Result<u128, Self::Error> {
+    fn read_u128(&mut self) -> Result<u128, DecodeError<Self::Error>> {
         decoder_read_value(self, u128::from_be_bytes)
     }
     
-    fn read_usize(&mut self) -> Result<usize, Self::Error> {
+    fn read_usize(&mut self) -> Result<usize, DecodeError<Self::Error>> {
         decoder_read_value(self, |bytes: [u8; 8]| u64::from_be_bytes(bytes) as usize)
     }
     
-    fn read_i8(&mut self) -> Result<i8, Self::Error> {
+    fn read_i8(&mut self) -> Result<i8, DecodeError<Self::Error>> {
         decoder_read_value(self, i8::from_be_bytes)
     }
     
-    fn read_i16(&mut self) -> Result<i16, Self::Error> {
+    fn read_i16(&mut self) -> Result<i16, DecodeError<Self::Error>> {
         decoder_read_value(self, i16::from_be_bytes)
     }
     
-    fn read_i32(&mut self) -> Result<i32, Self::Error> {
+    fn read_i32(&mut self) -> Result<i32, DecodeError<Self::Error>> {
         decoder_read_value(self, i32::from_be_bytes)
     }
     
-    fn read_i64(&mut self) -> Result<i64, Self::Error> {
+    fn read_i64(&mut self) -> Result<i64, DecodeError<Self::Error>> {
         decoder_read_value(self, i64::from_be_bytes)
     }
     
-    fn read_i128(&mut self) -> Result<i128, Self::Error> {
+    fn read_i128(&mut self) -> Result<i128, DecodeError<Self::Error>> {
         decoder_read_value(self, i128::from_be_bytes)
     }
     
-    fn read_isize(&mut self) -> Result<isize, Self::Error> {
+    fn read_isize(&mut self) -> Result<isize, DecodeError<Self::Error>> {
         decoder_read_value(self, |bytes: [u8; 8]| i64::from_be_bytes(bytes) as isize)
     }
     
-    fn read_bool(&mut self) -> Result<bool, Self::Error> {
+    fn read_bool(&mut self) -> Result<bool, DecodeError<Self::Error>> {
         decoder_read_value(self, |[byte]| byte != 0)
     }
     
     fn read_char(&mut self) -> Result<char, DecodeError<Self::Error>> {
         let mut bytes = [0u8; 4];
-        if let Err(err) = self.read_exact(&mut bytes) {
-            return Err(DecodeError::DecoderError(err));
-        }
+        self.read_exact(&mut bytes)?;
         let code = u32::from_be_bytes(bytes);
         char::from_u32(code)
             .ok_or_else(move || DecodeError::InvalidChar(code))
     }
     
-    fn read_u16_slice(&mut self, output: &mut [u16]) -> Result<(), Self::Error> {
+    fn read_u16_slice(&mut self, output: &mut [u16]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_u16, output)
     }
     
-    fn read_u32_slice(&mut self, output: &mut [u32]) -> Result<(), Self::Error> {
+    fn read_u32_slice(&mut self, output: &mut [u32]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_u32, output)
     }
     
-    fn read_u64_slice(&mut self, output: &mut [u64]) -> Result<(), Self::Error> {
+    fn read_u64_slice(&mut self, output: &mut [u64]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_u64, output)
     }
     
-    fn read_u128_slice(&mut self, output: &mut [u128]) -> Result<(), Self::Error> {
+    fn read_u128_slice(&mut self, output: &mut [u128]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_u128, output)
     }
     
-    fn read_usize_slice(&mut self, output: &mut [usize]) -> Result<(), Self::Error> {
+    fn read_usize_slice(&mut self, output: &mut [usize]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_usize, output)
     }
     
-    fn read_i8_slice(&mut self, output: &mut [i8]) -> Result<(), Self::Error> {
+    fn read_i8_slice(&mut self, output: &mut [i8]) -> Result<(), DecodeError<Self::Error>> {
         self.read_exact(unsafe { cast_mut_slice(output) })
     }
     
-    fn read_i16_slice(&mut self, output: &mut [i16]) -> Result<(), Self::Error> {
+    fn read_i16_slice(&mut self, output: &mut [i16]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_i16, output)
     }
     
-    fn read_i32_slice(&mut self, output: &mut [i32]) -> Result<(), Self::Error> {
+    fn read_i32_slice(&mut self, output: &mut [i32]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_i32, output)
     }
     
-    fn read_i64_slice(&mut self, output: &mut [i64]) -> Result<(), Self::Error> {
+    fn read_i64_slice(&mut self, output: &mut [i64]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_i64, output)
     }
     
-    fn read_i128_slice(&mut self, output: &mut [i128]) -> Result<(), Self::Error> {
+    fn read_i128_slice(&mut self, output: &mut [i128]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_i128, output)
     }
     
-    fn read_isize_slice(&mut self, output: &mut [isize]) -> Result<(), Self::Error> {
+    fn read_isize_slice(&mut self, output: &mut [isize]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_isize, output)
     }
     
-    fn read_bool_slice(&mut self, output: &mut [bool]) -> Result<(), Self::Error> {
+    fn read_bool_slice(&mut self, output: &mut [bool]) -> Result<(), DecodeError<Self::Error>> {
         decoder_read_slice(self, Self::read_bool, output)
     }
     
@@ -212,34 +210,34 @@ pub trait Decoder: Sized {
         decoder_read_slice(self, Self::read_char, output)
     }
     
-    fn read_u8_vec(&mut self) -> Result<Vec<u8>, Self::Error> {
+    fn read_u8_vec(&mut self) -> Result<Vec<u8>, DecodeError<Self::Error>> {
         let len = self.read_usize()?;
         let mut buf = vec![0u8; len];
         self.read_exact(&mut buf)?;
         Ok(buf)
     }
     
-    fn read_u16_vec(&mut self) -> Result<Vec<u16>, Self::Error> {
+    fn read_u16_vec(&mut self) -> Result<Vec<u16>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_u16)
     }
     
-    fn read_u32_vec(&mut self) -> Result<Vec<u32>, Self::Error> {
+    fn read_u32_vec(&mut self) -> Result<Vec<u32>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_u32)
     }
     
-    fn read_u64_vec(&mut self) -> Result<Vec<u64>, Self::Error> {
+    fn read_u64_vec(&mut self) -> Result<Vec<u64>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_u64)
     }
     
-    fn read_u128_vec(&mut self) -> Result<Vec<u128>, Self::Error> {
+    fn read_u128_vec(&mut self) -> Result<Vec<u128>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_u128)
     }
     
-    fn read_usize_vec(&mut self) -> Result<Vec<usize>, Self::Error> {
+    fn read_usize_vec(&mut self) -> Result<Vec<usize>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_usize)
     }
     
-    fn read_i8_vec(&mut self) -> Result<Vec<i8>, Self::Error> {
+    fn read_i8_vec(&mut self) -> Result<Vec<i8>, DecodeError<Self::Error>> {
         let bytes: Vec<u8> = self.read_u8_vec()?;
         // SAFETY: Vec<i8> has same size and alignment as Vec<u8>
         //         i8 has same size and alignment as u8
@@ -248,32 +246,32 @@ pub trait Decoder: Sized {
         }
     }
     
-    fn read_i16_vec(&mut self) -> Result<Vec<i16>, Self::Error> {
+    fn read_i16_vec(&mut self) -> Result<Vec<i16>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_i16)
     }
     
-    fn read_i32_vec(&mut self) -> Result<Vec<i32>, Self::Error> {
+    fn read_i32_vec(&mut self) -> Result<Vec<i32>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_i32)
     }
     
-    fn read_i64_vec(&mut self) -> Result<Vec<i64>, Self::Error> {
+    fn read_i64_vec(&mut self) -> Result<Vec<i64>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_i64)
     }
     
-    fn read_i128_vec(&mut self) -> Result<Vec<i128>, Self::Error> {
+    fn read_i128_vec(&mut self) -> Result<Vec<i128>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_i128)
     }
     
-    fn read_isize_vec(&mut self) -> Result<Vec<isize>, Self::Error> {
+    fn read_isize_vec(&mut self) -> Result<Vec<isize>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_isize)
     }
     
-    fn read_bool_vec(&mut self) -> Result<Vec<bool>, Self::Error> {
+    fn read_bool_vec(&mut self) -> Result<Vec<bool>, DecodeError<Self::Error>> {
         decoder_read_vec(self, Self::read_bool)
     }
     
     fn read_char_vec(&mut self) -> Result<Vec<char>, DecodeError<Self::Error>> {
-        let len = DecodeError::map(self.read_usize())?;
+        let len = self.read_usize()?;
         let mut output = Vec::with_capacity(len);
         for _ in 0..len {
             output.push(self.read_char()?);
@@ -282,12 +280,12 @@ pub trait Decoder: Sized {
     }
     
     fn read_str(&mut self) -> Result<String, DecodeError<Self::Error>> {
-        let string_bytes = DecodeError::map(self.read_u8_vec())?;
+        let string_bytes = self.read_u8_vec()?;
         Ok(String::from_utf8(string_bytes)?)
     }
     
     fn read_cstr(&mut self) -> Result<CString, DecodeError<Self::Error>> {
-        let string_bytes = DecodeError::map(self.read_u8_vec())?;
+        let string_bytes = self.read_u8_vec()?;
         Ok(CString::from_vec_with_nul(string_bytes)?)
     }
 }
@@ -301,21 +299,22 @@ pub trait Decode: Sized {
     fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError<D::Error>>;
 }
 
-macro_rules! int_decode_impls {
+macro_rules! primitive_decode_impls {
     ($(
         $decoder_fn:ident -> $for_ty:ty
     )+) => {
         $(
             impl Decode for $for_ty {
+                #[inline]
                 fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError<D::Error>> {
-                    map_err(decoder.$decoder_fn())
+                    decoder.$decoder_fn()
                 }
             }
         )*
     };
 }
 
-int_decode_impls!(
+primitive_decode_impls!(
     read_u8 -> u8
     read_u16 -> u16
     read_u32 -> u32
@@ -330,7 +329,24 @@ int_decode_impls!(
     
     read_usize -> usize
     read_isize -> isize
+    
+    read_bool -> bool
 );
+
+impl Decode for char {
+    #[inline]
+    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError<D::Error>> {
+        decoder.read_char()
+    }
+}
+
+impl<T: Decode + 'static> Decode for Vec<T> {
+    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError<D::Error>> {
+        let len = decoder.read_usize()?;
+        let vec = decoder_read_vec(decoder, T::decode)?;
+        unimplemented!()
+    }
+}
 
 impl<T> Decode for (T,)
 where
@@ -413,10 +429,11 @@ fn foo() {
     struct Dec;
     impl Decoder for Dec {
         type Error = ();
-        fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-            buf.iter_mut().for_each(|v| *v = 0);
+        fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), DecodeError<Self::Error>> {
+            buf.fill(0x1f);
             Ok(())
         }
     }
     let value: (i32, i8, u64) = decode(&mut Dec).unwrap();
+    assert_eq!(value, (0x1f1f1f1f, 0x1f, 0x1f1f1f1f1f1f1f1f));
 }

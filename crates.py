@@ -3,7 +3,6 @@ from subprocess import run
 from pathlib import Path
 
 from cmdr import (
-    entry,
     command,
     subparser,
     subcommand,
@@ -28,8 +27,17 @@ def confirm(prompt: str)->bool:
         case _:
             return False
 
+def new(name: str, type: str = 'lib'):
+    run(('cargo', 'init' , f'--{type}', f'crates\\{name}'))
+
 def new_command(args):
     return run(('cargo', 'init' , f'--{args.type}', f'crates\\{args.name}')).returncode
+
+def remove(name: str):
+    subpath = get_crates_path(name)
+    if not subpath.exists():
+        raise KeyError(name)
+    shutil.rmtree(subpath)
 
 def rm_command(args):
     subpath = get_crates_path(args.name)
@@ -42,6 +50,16 @@ def rm_command(args):
         if not args.quiet:
             print(f'{args.name} was deleted.')
 
+def open_terminal(name: str, profile: str | None = None, new_window: bool = False):
+    wt_args = ['wt']
+    if not new_window:
+        wt_args.extend(('-w', '0'))
+    subpath = get_crates_path(name)
+    wt_args.extend(('-d', str(subpath)))
+    if profile:
+        wt_args.extend(('-p', profile))
+    run(wt_args)
+
 def term_command(args):
     wt_args = ['wt']
     if not args.new_window:
@@ -51,9 +69,12 @@ def term_command(args):
     wt_args.extend(('-p', args.profile))
     return run(wt_args).returncode
 
+def exists(name: str)->bool:
+    subpath = get_crates_path(name)
+    return subpath.exists()
+
 def exists_command(args):
-    subpath = get_crates_path(args.name)
-    if subpath.exists():
+    if exists(args.name):
         if not args.quiet:
             print(f"Exists.")
     else:

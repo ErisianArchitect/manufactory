@@ -113,6 +113,10 @@ name = "mffmt"
 version = "0.1.0"
 
 [[package]]
+name = "mfgeometry"
+version = "0.1.0"
+
+[[package]]
 name = "mfhash"
 version = "0.1.0"
 dependencies = [
@@ -136,6 +140,10 @@ dependencies = [
  "mffmt",
  "mfhash",
 ]
+
+[[package]]
+name = "mfworld"
+version = "0.1.0"
 
 [[package]]
 name = "paste"

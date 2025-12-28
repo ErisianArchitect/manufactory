@@ -1,4 +1,5 @@
 use ::core::ffi::CStr;
+use std::any::TypeId;
 
 struct Counter {
     count: u64,
@@ -26,10 +27,10 @@ impl Counter {
 type EncRes<E> = Result<u64, E>;
 
 /// Simply a wrapper around [::core::mem::transmute]. Meant to ensure
-/// that it is an array that is being transmuted.
+/// that it is an slice that is being transmuted.
 #[inline(always)]
 #[must_use]
-unsafe fn cast_array<'a, Src, Dst>(array: &'a [Src]) -> &'a [Dst] {
+unsafe fn cast_slice<'a, Src, Dst>(array: &'a [Src]) -> &'a [Dst] {
     const {
         use ::core::mem::{align_of, size_of};
         if !(
@@ -189,37 +190,37 @@ pub trait Encoder {
     
     fn write_i8_slice(&mut self, slice: &[i8], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_u8_slice(cast_array(slice), with_len)
+            self.write_u8_slice(cast_slice(slice), with_len)
         }
     }
     
     fn write_i16_slice(&mut self, slice: &[i16], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_u16_slice(cast_array(slice), with_len)
+            self.write_u16_slice(cast_slice(slice), with_len)
         }
     }
     
     fn write_i32_slice(&mut self, slice: &[i32], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_u32_slice(cast_array(slice), with_len)
+            self.write_u32_slice(cast_slice(slice), with_len)
         }
     }
     
     fn write_i64_slice(&mut self, slice: &[i64], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_u64_slice(cast_array(slice), with_len)
+            self.write_u64_slice(cast_slice(slice), with_len)
         }
     }
     
     fn write_i128_slice(&mut self, slice: &[i128], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_u128_slice(cast_array(slice), with_len)
+            self.write_u128_slice(cast_slice(slice), with_len)
         }
     }
     
     fn write_isize_slice(&mut self, slice: &[isize], with_len: bool) -> EncRes<Self::Error> {
         unsafe {
-            self.write_usize_slice(cast_array(slice), with_len)
+            self.write_usize_slice(cast_slice(slice), with_len)
         }
     }
     
@@ -247,5 +248,66 @@ pub trait Encoder {
 }
 
 pub trait Encode {
-    // fn encode
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<u64, E::Error>;
+}
+
+macro_rules! primitive_encode_impls {
+    ($(
+        $encode_fn:ident($impl_ty:ty)
+    )+) => {
+        $(
+            impl Encode for $impl_ty {
+                #[inline]
+                fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<u64, E::Error> {
+                    encoder.$encode_fn(*self)
+                }
+            }
+        )*
+    };
+}
+
+primitive_encode_impls!(
+    write_u8(u8)
+    write_u16(u16)
+    write_u32(u32)
+    write_u64(u64)
+    write_u128(u128)
+    write_usize(usize)
+    write_i8(i8)
+    write_i16(i16)
+    write_i32(i32)
+    write_i64(i64)
+    write_i128(i128)
+    write_isize(isize)
+    write_bool(bool)
+    write_char(char)
+);
+
+fn encode_sized_slice<T: Encode + 'static, E: Encoder>(slice: &[T], encoder: &mut E) -> Result<u64, E::Error> {
+    if
+        TypeId::of::<T>() == TypeId::of::<u8>()
+        || TypeId::of::<T>() == TypeId::of::<i8>()
+    {
+        let slice: &[u8] = unsafe { cast_slice(slice) };
+        encoder.write_u8_slice(slice, true)
+    } else {
+        let mut counter = Counter::new();
+        counter.incr(encoder.write_usize(slice.len()))?;
+        for item in slice.iter() {
+            counter.incr(item.encode(encoder))?;
+        }
+        counter.ok()
+    }
+}
+
+impl<T: Encode + 'static> Encode for Vec<T> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<u64, E::Error> {
+        encode_sized_slice(self.as_slice(), encoder)
+    }
+}
+
+impl<T: Encode + 'static> Encode for Box<[T]> {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<u64, E::Error> {
+        encode_sized_slice(self.as_ref(), encoder)
+    }
 }
