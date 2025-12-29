@@ -6,21 +6,46 @@ use crate::{
     direction::Direction,
 };
 
-// Orientation is three values packed together.
-// The Flip, which is 3 bits.
-// The Rotation is 5 bits, and consists of two packed values:
-//      angle: 0..2
-//      up   : 2..5
-// Field   : Bit Range
-// Flip    : 0..3
-// Rotation: 3..8
-//      3..5 -> angle
-//      5..8 -> up
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeconstructedOrientation {
+    pub flip_x: bool,
+    pub flip_y: bool,
+    pub flip_z: bool,
+    pub angle: u8,
+    pub up: Direction,
+}
+
+impl DeconstructedOrientation {
+    #[inline]
+    pub const fn construct(self) -> Orientation {
+        Orientation::new(
+            Rotation::new(
+                self.up,
+                self.angle as i32,
+            ),
+            Flip::new(
+                self.flip_x,
+                self.flip_y,
+                self.flip_z,
+            ),
+        )
+    }
+}
+
+// Field     : Bit Range
+// Flip      : 0..3
+//      X    : 0
+//      Y    : 1
+//      Z    : 2
+// Rotation  : 3..8
+//      angle: 3..5
+//      up   : 5..8
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Orientation(pub(crate) u8);
 
 impl Orientation {
+    pub(crate) const TOTAL_ORIENTATION_COUNT: u8 = /* Flip */ 8 * /* Angle */ 4 * /* Up */ 6;
     pub const UNORIENTED: Orientation = Orientation::new(Rotation::new(Direction::PosY, 0), Flip::NONE);
     pub const ROTATE_X: Orientation = Rotation::ROTATE_X.orientation();
     pub const ROTATE_Y: Orientation = Rotation::ROTATE_Y.orientation();
@@ -81,6 +106,30 @@ impl Orientation {
     #[inline]
     pub const fn new(rotation: Rotation, flip: Flip) -> Self {
         Self(pack_flip_and_rotation(flip, rotation))
+    }
+    
+    #[inline]
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        if value > Self::TOTAL_ORIENTATION_COUNT {
+            return None;
+        }
+        Some(Self(value))
+    }
+    
+    #[inline]
+    pub const fn to_u8(self) -> u8 {
+        self.0
+    }
+    
+    #[inline]
+    pub const fn deconstruct(self) -> DeconstructedOrientation {
+        DeconstructedOrientation {
+            flip_x: self.flip().x(),
+            flip_y: self.flip().y(),
+            flip_z: self.flip().z(),
+            angle: (self.rotation().angle() & Rotation::ANGLE_MASK_I32) as u8,
+            up: self.rotation().up(),
+        }
     }
     
     // verified (2025-12-28)
@@ -148,6 +197,24 @@ impl Orientation {
         let mut rot = self.rotation();
         rot.set_angle(angle);
         self.set_rotation(rot);
+    }
+    
+    pub fn cycle(self) -> Self {
+        // Here, we assume that `self` has a valid bit representation.
+        Self((self.0 + 1) % Self::TOTAL_ORIENTATION_COUNT)
+    }
+    
+    /// This will cycle through the 8 [Flip] states before cycling the 24 [Rotation] states.
+    /// 
+    /// If you would like a version that cycles the rotations before cycling the flips, use [Orientation::iter_rotation_order].
+    #[inline]
+    pub fn iter(self) -> impl Iterator<Item = Self> {
+        (0..Self::TOTAL_ORIENTATION_COUNT).map(move |i| Self(i))
+    }
+    
+    #[inline]
+    pub fn iter_rotation_order(self) -> RotationFirstOrientationIterator {
+        RotationFirstOrientationIterator::START
     }
 
     /// `reface` can be used to determine where a face will end up after orientation.
@@ -397,3 +464,56 @@ impl std::fmt::Display for Orientation {
 //         println!("!PosZ: {posz:?}");
 //     }
 // }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RotationFirstOrientationIterator {
+    flip: u8,
+    rotation: u8,
+}
+
+impl RotationFirstOrientationIterator {
+    pub(crate) const START: Self = Self { flip: 0, rotation: 0 };
+    #[inline]
+    pub const fn new() -> Self {
+        Self::START
+    }
+    
+    #[inline]
+    pub const fn start_at(orientation: Orientation) -> Self {
+        Self {
+            flip: orientation.flip().0,
+            rotation: orientation.rotation().0,
+        }
+    }
+    
+    /// Gets the current element without advancing the iterator.
+    #[inline]
+    pub const fn current(self) -> Option<Orientation> {
+        if self.flip == 8 {
+            return None;
+        }
+        Some(Orientation::new(Rotation(self.rotation), Flip(self.flip)))
+    }
+}
+
+impl Iterator for RotationFirstOrientationIterator {
+    type Item = Orientation;
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        const SIZE: usize = Orientation::TOTAL_ORIENTATION_COUNT as usize;
+        let total = (self.flip as usize * 24) + self.rotation as usize;
+        (SIZE - total, Some(SIZE - total))
+    }
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.flip == 8 {
+            return None;
+        }
+        let result = Some(Orientation::new(Rotation(self.rotation), Flip(self.flip)));
+        self.rotation += 1;
+        if self.rotation == 24 {
+            self.flip += 1;
+        }
+        result
+    }
+}

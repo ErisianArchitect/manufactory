@@ -4,7 +4,7 @@ use paste::paste;
 use crate::{direction::Direction};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Flip(pub u8);
+pub struct Flip(pub(crate) u8);
 
 macro_rules! flip_axes {
     ($(
@@ -64,6 +64,49 @@ macro_rules! flip_axes {
     };
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FlipState {
+    None = 0,
+    X = 1,
+    Y = 2,
+    Z = 4,
+    XY = 3,
+    XZ = 5,
+    YZ = 6,
+    XYZ = 7,
+}
+
+impl FlipState {
+    #[inline]
+    pub const fn to_flip(self) -> Flip {
+        match self {
+            FlipState::None => Flip::NONE,
+            FlipState::X => Flip::X,
+            FlipState::Y => Flip::Y,
+            FlipState::Z => Flip::Z,
+            FlipState::XY => Flip::XY,
+            FlipState::XZ => Flip::XZ,
+            FlipState::YZ => Flip::YZ,
+            FlipState::XYZ => Flip::XYZ,
+        }
+    }
+    
+    pub const fn from_flip(flip: Flip) -> Self {
+        match Flip(flip.0 & Flip::ALL.0) {
+            Flip::NONE => Self::None,
+            Flip::X => Self::X,
+            Flip::Y => Self::Y,
+            Flip::Z => Self::Z,
+            Flip::XY => Self::XY,
+            Flip::XZ => Self::XZ,
+            Flip::YZ => Self::YZ,
+            Flip::XYZ => Self::XYZ,
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        }
+    }
+}
+
 impl Flip {
     flip_axes!(
         {const X   = 0b001; fn x  } // 1
@@ -83,8 +126,12 @@ impl Flip {
     }
     
     #[inline]
-    pub const fn from_u8(flip: u8) -> Self {
-        Self(flip & Self::ALL.0)
+    pub const fn from_u8(bits: u8) -> Option<Self> {
+        const INV_FLIP_MASK: u8 = !Flip::ALL.0;
+        if bits & INV_FLIP_MASK != 0 {
+            return None;
+        }
+        Some(Self(bits))
     }
     
     #[inline]
@@ -134,6 +181,11 @@ impl Flip {
             NegZ | PosZ if self.z() => true,
             _ => false,
         }
+    }
+    
+    #[inline]
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..8).map(Self)
     }
 
     // /// If the [Flip] is being used to flip vertices, this method determines if the indices need to be reversed.

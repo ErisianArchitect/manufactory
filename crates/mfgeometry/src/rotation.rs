@@ -17,14 +17,14 @@ pub const fn wrap_angle(angle: i32) -> i32 {
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Rotation(pub u8);
+pub struct Rotation(pub(crate) u8);
 
 impl Rotation {
-    const ANGLE_MASK: u8 = 0b00000011;
-    const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
-    const UP_MASK   : u8 = 0b00011100;
+    pub(crate) const ROTATION_MASK: u8 = 0b11111;
+    pub(crate) const ANGLE_MASK: u8 = 0b00000011;
+    pub(crate) const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
     /// ((up << UP_SHIFT) & UP_MASK) | (angle & ANGLE_MASK)
-    const UP_SHIFT: u32 = 2;
+    pub(crate) const UP_SHIFT: u32 = 2;
     
     pub const UNROTATED: Rotation = Rotation::new(Direction::PosY, 0);
     pub const ROTATE_X: Rotation = Rotation::new(Direction::PosZ, 0);
@@ -94,6 +94,20 @@ impl Rotation {
         let up = up as u8;
         let angle = wrap_angle(angle) as u8;
         Self(angle | (up << Self::UP_SHIFT))
+    }
+    
+    #[inline]
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        const INV_ROT_MASK: u8 = !Rotation::ROTATION_MASK;
+        if value & INV_ROT_MASK != 0 {
+            return None;
+        }
+        Some(Self(value))
+    }
+    
+    #[inline]
+    pub const fn to_u8(self) -> u8 {
+        self.0
     }
     
     /// Creates a new [Rotation] with [Direction::NegX] as the up direction.
@@ -238,9 +252,14 @@ impl Rotation {
         self.0 = (self.0 & UP_ISOLATE_MASK) | wrap_angle(angle) as u8;
     }
     
+    #[inline]
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..24).map(Self)
+    }
+    
     // verified (2025-12-28)
     pub const fn up(self) -> Direction {
-        let up = self.0 >> 2;
+        let up = self.0 >> Self::UP_SHIFT;
         match up {
             0 => Direction::PosY,
             1 => Direction::PosX,
@@ -254,7 +273,7 @@ impl Rotation {
 
     // verified (2025-12-28)
     pub const fn down(self) -> Direction {
-        let up = self.0 >> 2;
+        let up = self.0 >> Self::UP_SHIFT;
         match up {
             4 => Direction::PosX,
             3 => Direction::PosY,
@@ -628,6 +647,7 @@ impl Rotation {
     }
 
     // verified (2025-12-28)
+    // double verified (2025-12-29)
     //      NOTE: This was verified manually. It may be wrong. I didn't really know how to automate a test for this one. Maybe I'll figure it out later.
     /// Gets the angle of the face oriented to `world_face`.
     pub fn face_angle(self, world_face: Direction) -> u8 {
