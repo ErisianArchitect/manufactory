@@ -72,10 +72,14 @@ impl Direction {
 
     pub const LEFT: Direction = Direction::NegX;
     pub const DOWN: Direction = Direction::NegY;
+    pub const BOTTOM: Direction = Direction::DOWN;
     pub const FORWARD: Direction = Direction::NegZ;
+    pub const FRONT: Direction = Direction::FORWARD;
     pub const RIGHT: Direction = Direction::PosX;
     pub const UP: Direction = Direction::PosY;
+    pub const TOP: Direction = Direction::UP;
     pub const BACKWARD: Direction = Direction::PosZ;
+    pub const BACK: Direction = Direction::BACKWARD;
     
     pub const NORTH: Direction = Direction::FORWARD;
     pub const WEST: Direction = Direction::LEFT;

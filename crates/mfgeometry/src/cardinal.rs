@@ -1,5 +1,7 @@
 // Last Reviewed: (2025-12-28)
 
+use crate::wrap_angle;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Cardinal {
@@ -53,19 +55,17 @@ impl Cardinal {
         Cardinal::West,
         Cardinal::East,
     ];
+    
+    #[inline]
+    pub const fn at_angle(angle: i32) -> Self {
+        Self::ALL[wrap_angle(angle) as usize]
+    }
 
     /// Rotates the [Cardinal] direction counter-clockwise by `rotation`.
     #[inline]
     pub const fn rotate(self, rotation: i32) -> Self {
-        const CARDS: [Cardinal; 4] = [
-            Cardinal::North,
-            Cardinal::West,
-            Cardinal::South,
-            Cardinal::East,
-        ];
-        let index = self.angle() as i32;
-        let rot_index = (index as i64 + rotation as i64).rem_euclid(4);
-        CARDS[rot_index as usize]
+        let new_index = ((rotation as i64 + self.angle() as i64) & 3) as usize;
+        Self::ALL[new_index]
     }
 
     /// Inverts the [Cardinal] to the opposite direction.
@@ -91,7 +91,7 @@ impl Cardinal {
     }
     
     #[inline]
-    pub const fn angle(self) -> u8 {
+    pub const fn angle(self) -> i32 {
         match self {
             Cardinal::North => 0,
             Cardinal::West => 1,

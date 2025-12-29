@@ -126,12 +126,17 @@ impl Flip {
     }
     
     #[inline]
+    pub const unsafe fn from_u8_unchecked(bits: u8) -> Self {
+        Self(bits)
+    }
+    
+    #[inline]
     pub const fn from_u8(bits: u8) -> Option<Self> {
-        const INV_FLIP_MASK: u8 = !Flip::ALL.0;
-        if bits & INV_FLIP_MASK != 0 {
+        if bits > Flip::ALL.0 {
             return None;
         }
-        Some(Self(bits))
+        // SAFETY: Guard clause ensures that u8 is valid
+        Some(unsafe { Self::from_u8_unchecked(bits) })
     }
     
     #[inline]

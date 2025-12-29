@@ -15,7 +15,9 @@ use crate::{
 pub struct Rotation(pub(crate) u8);
 
 impl Rotation {
-    pub(crate) const ROTATION_MASK: u8 = 0b11111;
+    pub const MIN: Self = Self(0);
+    // only 24 valid rotations (6 sides * 4 angles)
+    pub const MAX: Self = Self(23);
     pub(crate) const ANGLE_MASK: u8 = 0b00000011;
     pub(crate) const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
     /// ((up << UP_SHIFT) & UP_MASK) | (angle & ANGLE_MASK)
@@ -97,12 +99,18 @@ impl Rotation {
     }
     
     #[inline]
+    pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
+        Self(value)
+    }
+    
+    #[inline]
     pub const fn from_u8(value: u8) -> Option<Self> {
-        const INV_ROT_MASK: u8 = !Rotation::ROTATION_MASK;
-        if value & INV_ROT_MASK != 0 {
+        // Only first 24 values are valid rotations.
+        if value > Self::MAX.0 {
             return None;
         }
-        Some(Self(value))
+        // SAFETY: Guard clause ensures that u8 is valid value.
+        Some(unsafe { Self::from_u8_unchecked(value) })
     }
     
     #[inline]

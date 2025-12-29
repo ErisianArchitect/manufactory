@@ -143,11 +143,17 @@ impl Orientation {
     }
     
     #[inline]
+    pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
+        Self(value)
+    }
+    
+    #[inline]
     pub const fn from_u8(value: u8) -> Option<Self> {
         if value > Self::MAX.0 {
             return None;
         }
-        Some(Self(value))
+        // SAFETY: guard clause ensures that u8 is not invalid.
+        Some(unsafe { Self::from_u8_unchecked(value) })
     }
     
     #[inline]
