@@ -1,9 +1,10 @@
 use crate::{
-    flip::Flip,
-    rotation::Rotation,
-    orient_table,
-    pack_flip_and_rotation,
     direction::Direction,
+    flip::Flip,
+    orient_table,
+    rotation::Rotation,
+    pack_flip_and_rotation,
+    wrap_angle,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,15 +47,46 @@ pub struct Orientation(pub(crate) u8);
 
 impl Orientation {
     pub(crate) const TOTAL_ORIENTATION_COUNT: u8 = /* Flip */ 8 * /* Angle */ 4 * /* Up */ 6;
+    pub(crate) const ORIENTATION_MAX: u8 = Self::TOTAL_ORIENTATION_COUNT - 1;
     pub const UNORIENTED: Orientation = Orientation::new(Rotation::new(Direction::PosY, 0), Flip::NONE);
+    pub const MIN: Self = Self::UNORIENTED;
+    pub const MAX: Self = Self(Self::ORIENTATION_MAX);
     pub const ROTATE_X: Orientation = Rotation::ROTATE_X.orientation();
     pub const ROTATE_Y: Orientation = Rotation::ROTATE_Y.orientation();
     pub const ROTATE_Z: Orientation = Rotation::ROTATE_Z.orientation();
     pub const X_ROTATIONS: [Orientation; 4] = Self::ROTATE_X.angles();
     pub const Y_ROTATIONS: [Orientation; 4] = Self::ROTATE_Y.angles();
     pub const Z_ROTATIONS: [Orientation; 4] = Self::ROTATE_Z.angles();
+    
+    /// Although it is more logical to cycle through [Rotation] before
+    /// [Flip], it is more logical to have [Flip] in the lower bits of
+    /// [Orientation] since [Rotation] max value is not a power of two.
+    /// 
+    /// This array is ordered by [Rotation] first, then [Flip], allowing
+    /// for cycling through rotations before flips.
+    pub const ROTATION_ORDERED: [Self; Self::TOTAL_ORIENTATION_COUNT as usize] = {
+        let mut order = [Self(0); Self::TOTAL_ORIENTATION_COUNT as usize];
+        let mut flip = 0u8;
+        let mut rotation = 0u8;
+        let mut index = 0;
+        loop {
+            let orient = Orientation::new(Rotation(rotation), Flip(flip));
+            order[index] = orient;
+            index += 1;
+            if rotation == 23 {
+                if flip == 7 {
+                    break;
+                }
+                rotation = 0;
+                flip += 1;
+            } else {
+                rotation += 1;
+            }
+        }
+        order
+    };
 
-    // FIXME: Make consistent with Rotation::CORNER_ROTATIONS_MATRIX
+    // verified (2025-12-29)
     pub const CORNER_ORIENTATIONS_MATRIX: [[[[Orientation; 3]; 2]; 2]; 2] = [
         [
             [Rotation::new(Direction::PosX, 2).orientation().corner_angles(), Rotation::new(Direction::PosZ, 3).orientation().corner_angles()],
@@ -66,7 +98,8 @@ impl Orientation {
         ],
     ];
     
-    // I think this is wrong (2025-12-28)
+    // verified (2025-12-29)
+    // Ordered by Direction rotation discriminant (`PosY`, `PosX`, `PosZ`, `NegY`, `NegX`, `NegZ`)
     pub const FACE_ORIENTATIONS: [[Orientation; 4]; 6] = [
         Self::Y_ROTATIONS, // PosY
         Self::X_ROTATIONS, // PosX
@@ -80,9 +113,10 @@ impl Orientation {
     /// If angle == 0, orientation is default orientation.
     #[inline]
     pub const fn face_orientation(face: Direction, angle: i32) -> Self {
-        Self::FACE_ORIENTATIONS[face as usize][(angle & 3) as usize]
+        Self::FACE_ORIENTATIONS[face as usize][wrap_angle(angle) as usize]
     }
-
+    
+    // `n <= 0` == `-N`, `n > 0` == `+N`
     pub const fn corner_orientation(x: i32, y: i32, z: i32, angle: i32) -> Orientation {
         let x = if x <= 0 {
             0
@@ -110,7 +144,7 @@ impl Orientation {
     
     #[inline]
     pub const fn from_u8(value: u8) -> Option<Self> {
-        if value > Self::TOTAL_ORIENTATION_COUNT {
+        if value > Self::MAX.0 {
             return None;
         }
         Some(Self(value))
@@ -176,13 +210,25 @@ impl Orientation {
     }
 
     #[inline]
-    pub fn set_flip(&mut self, flip: Flip) {
+    pub const fn set_flip(&mut self, flip: Flip) {
         self.0 = (self.0 & 0b11111000) | flip.0
     }
+    
+    #[inline]
+    pub const fn reset_flip(&mut self) {
+        self.0 &= 0b11111000;
+    }
+    
+    // TODO: set_flip_x, set_flip_y, set_flip_z, set_flip_xy, set_flip_xz, set_flip_yz, set_flip_xyz
 
     #[inline]
-    pub fn set_rotation(&mut self, rotation: Rotation) {
+    pub const fn set_rotation(&mut self, rotation: Rotation) {
         self.0 = (self.0 & 0b111) | rotation.0 << 3;
+    }
+    
+    #[inline]
+    pub const fn reset_rotation(&mut self) {
+        self.0 &= 0b111;
     }
 
     #[inline]
@@ -199,9 +245,29 @@ impl Orientation {
         self.set_rotation(rot);
     }
     
-    pub fn cycle(self) -> Self {
+    /// Cycle through each [Orientation].
+    /// 
+    /// This will cycle through the [Flip] first.
+    /// There are other cycling options, such as cycling through
+    /// the rotations first, then the flips, or cycling through
+    /// only the rotations.
+    #[inline]
+    pub const fn cycle(self, offset: i32) -> Self {
         // Here, we assume that `self` has a valid bit representation.
-        Self((self.0 + 1) % Self::TOTAL_ORIENTATION_COUNT)
+        Self((self.0 as i64 + offset as i64).rem_euclid(Self::TOTAL_ORIENTATION_COUNT as i64) as u8)
+    }
+    
+    #[inline]
+    pub const fn cycle_rotation_first(self, offset: i32) -> Self {
+        let index = self.flip().0 as i64 * 24 + self.rotation().0 as i64;
+        let offset_index = (index + offset as i64).rem_euclid(Self::TOTAL_ORIENTATION_COUNT as i64) as usize;
+        Self::ROTATION_ORDERED[offset_index]
+    }
+    
+    /// Keeps the [Flip], but cycles through [Rotation].
+    #[inline]
+    pub const fn cycle_rotation(self, offset: i32) -> Self {
+        Self::new(self.rotation().cycle(offset), self.flip())
     }
     
     /// This will cycle through the 8 [Flip] states before cycling the 24 [Rotation] states.
@@ -212,6 +278,7 @@ impl Orientation {
         (0..Self::TOTAL_ORIENTATION_COUNT).map(move |i| Self(i))
     }
     
+    /// Cycle through the 24 [Rotation] states before cycling through the 8 [Flip] states.
     #[inline]
     pub fn iter_rotation_order(self) -> RotationFirstOrientationIterator {
         RotationFirstOrientationIterator::START
@@ -338,35 +405,62 @@ impl Orientation {
     pub const fn invert(self) -> Self {
         Orientation::UNORIENTED.deorient(self)
     }
-
+    
+    /// Flip the [Orientation] along the `X` axis.
     #[inline]
     pub const fn flip_x(self) -> Self {
         Orientation::new(self.rotation(), self.flip().flip_x())
     }
 
+    /// Flip the [Orientation] along the `Y` axis.
     #[inline]
     pub const fn flip_y(self) -> Self {
         Orientation::new(self.rotation(), self.flip().flip_y())
     }
 
+    /// Flip the [Orientation] along the `Z` axis.
     #[inline]
     pub const fn flip_z(self) -> Self {
         Orientation::new(self.rotation(), self.flip().flip_z())
     }
+    
+    /// Flip the [Orientation] along the `X` and `Y` axes.
+    #[inline]
+    pub const fn flip_xy(self) -> Self {
+        Orientation::new(self.rotation(), self.flip().flip_xy())
+    }
+    
+    /// Flip the [Orientation] along the `X` and `Z` axes.
+    #[inline]
+    pub const fn flip_xz(self) -> Self {
+        Orientation::new(self.rotation(), self.flip().flip_xz())
+    }
+    
+    // Flip the [Orientation] along the `Y` and `Z` axes.
+    #[inline]
+    pub const fn flip_yz(self) -> Self {
+        Orientation::new(self.rotation(), self.flip().flip_yz())
+    }
+    
+    /// Flip the [Orientation] along the `X`, `Y`, and `Z` axes.
+    #[inline]
+    pub const fn flip_xyz(self) -> Self {
+        Orientation::new(self.rotation(), self.flip().flip_xyz())
+    }
 
     #[inline]
     pub const fn rotate_x(self, angle: i32) -> Self {
-        self.reorient(Orientation::X_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Orientation::X_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     #[inline]
     pub const fn rotate_y(self, angle: i32) -> Self {
-        self.reorient(Orientation::Y_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Orientation::Y_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     #[inline]
     pub const fn rotate_z(self, angle: i32) -> Self {
-        self.reorient(Orientation::Z_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Orientation::Z_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     /// Rotate `face` clockwise by `angle`. Use a negative `angle` to rotate counter-clockwise.
@@ -403,13 +497,6 @@ impl Orientation {
     //         glam::Vec3::ZERO.extend(1.0),
     //     )
     // }
-}
-
-impl From<u8> for Orientation {
-    #[inline]
-    fn from(value: u8) -> Self {
-        Orientation(value)
-    }
 }
 
 impl Into<u8> for Orientation {
@@ -465,6 +552,7 @@ impl std::fmt::Display for Orientation {
 //     }
 // }
 
+// verified (2025-12-29)
 /// Used to iterate over each [Orientation] in the order where [Rotation] cycles before [Flip].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RotationFirstOrientationIterator {
@@ -514,7 +602,24 @@ impl Iterator for RotationFirstOrientationIterator {
         self.rotation += 1;
         if self.rotation == 24 {
             self.flip += 1;
+            self.rotation = 0;
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn rotation_first_order_test() {
+        let iterator = ::core::iter::zip(
+            Orientation::ROTATION_ORDERED.iter().copied(),
+            RotationFirstOrientationIterator::START,
+        );
+        for (lhs, rhs) in iterator {
+            assert_eq!(lhs, rhs);
+        }
     }
 }

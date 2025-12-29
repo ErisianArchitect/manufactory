@@ -44,6 +44,11 @@ pub const fn unpack_flip_and_rotation(packed: u8) -> (Flip, Rotation) {
     (Flip(flip), Rotation(rotation))
 }
 
+// verified (2025-12-28)
+#[inline]
+pub const fn wrap_angle(angle: i32) -> i32 {
+    angle & Rotation::ANGLE_MASK_I32
+}
 
 #[cfg(test)]
 mod tests {
@@ -51,20 +56,6 @@ mod tests {
     
     #[test]
     fn orientation_test() {
-        // macro_rules! test_rot {
-        //     ($(
-        //         $up:ident($rot:literal) => $dir:ident -> $expect:ident
-        //     ),*$(,)?) => {
-        //         $(
-        //             {
-        //                 let orient = Orientation::new(Rotation::new(Direction::$up, $rot), Flip::NONE);
-        //                 let dir = Direction::$dir;
-        //                 let dir_rot = orient.reface(dir);
-        //                 assert_eq!(dir_rot, Direction::$expect, stringify!(($up, $rot) => $dir -> $expect));
-        //             }
-        //         )*
-        //     };
-        // }
         for dir in Direction::iter() {
             let orient = Orientation::new(Rotation::new(dir, 1), Flip::NONE);
             
@@ -141,10 +132,6 @@ mod tests {
     
     #[test]
     fn face_angle_test() {
-        for angle in 0..4 {
-            for up in Direction::iter() {
-                let rotation = Rotation::new(up, angle);
-            }
-        }
+        todo!()
     }
 }

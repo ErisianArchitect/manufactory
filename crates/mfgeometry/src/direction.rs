@@ -4,8 +4,11 @@ use crate::{
     axis::Axis,
     flip::Flip,
     rotation::Rotation,
+    wrap_angle,
 };
 
+// NOTE: This API could be made to be universal if I switch NegAxis/PosAxis for named directions such as Up/Down.
+//       Then consts could be made for various coordinate systems.
 // The ids are out of order so that they can have a certain order for orientations.
 // If you change the discriminants, then some code might break.
 // The purpose of this order is so that the bit representation of certain rotations
@@ -178,6 +181,12 @@ impl Direction {
         Self::INDEX_ORDER.into_iter()
     }
     
+    /*============================================================*\
+    ||The following functions (up/down/left/right) can be used for||
+    ||verification of orientation code. It can also be used to    ||
+    ||generate lookup tables.                                     ||
+    \*============================================================*/
+    
     // verified (2025-12-28)
     /// On a non-oriented cube, each face has an "up" face. That's the face
     /// whose normal points to the top of the given face's UV plane.
@@ -196,12 +205,13 @@ impl Direction {
     
     // verified (2025-12-28)
     pub const fn up_at_angle(self, angle: i32) -> Direction {
-        match angle & 3 {
+        match wrap_angle(angle) {
             0 => self.up(),
             1 => self.left(),
             2 => self.down(),
             3 => self.right(),
-            _ => unreachable!(),
+            // SAFETY: 0..4 are the only possible values for `wrap_angle(angle)`.
+            _ => unsafe { ::core::hint::unreachable_unchecked() },
         }
     }
 
@@ -223,12 +233,13 @@ impl Direction {
     
     // verified (2025-12-28)
     pub const fn left_at_angle(self, angle: i32) -> Direction {
-        match angle & 3 {
+        match wrap_angle(angle) {
             0 => self.left(),
             1 => self.down(),
             2 => self.right(),
             3 => self.up(),
-            _ => unreachable!(),
+            // SAFETY: 0..4 are the only possible values for `wrap_angle(angle)`.
+            _ => unsafe { ::core::hint::unreachable_unchecked() },
         }
     }
 
@@ -250,12 +261,13 @@ impl Direction {
     
     // verified (2025-12-28)
     pub const fn down_at_angle(self, angle: i32) -> Direction {
-        match angle & 3 {
+        match wrap_angle(angle) {
             0 => self.down(),
             1 => self.right(),
             2 => self.up(),
             3 => self.left(),
-            _ => unreachable!(),
+            // SAFETY: 0..4 are the only possible values for `wrap_angle(angle)`.
+            _ => unsafe { ::core::hint::unreachable_unchecked() },
         }
     }
 
@@ -277,12 +289,13 @@ impl Direction {
     
     // verified (2025-12-28)
     pub const fn right_at_angle(self, angle: i32) -> Direction {
-        match angle & 3 {
+        match wrap_angle(angle) {
             0 => self.right(),
             1 => self.up(),
             2 => self.left(),
             3 => self.down(),
-            _ => unreachable!(),
+            // SAFETY: 0..4 are the only possible values for `wrap_angle(angle)`.
+            _ => unsafe { ::core::hint::unreachable_unchecked() },
         }
     }
 

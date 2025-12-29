@@ -7,13 +7,8 @@
 use crate::{
     direction::Direction,
     orientation::Orientation,
+    wrap_angle,
 };
-
-// verified (2025-12-28)
-#[inline]
-pub const fn wrap_angle(angle: i32) -> i32 {
-    angle & Rotation::ANGLE_MASK_I32
-}
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
@@ -94,6 +89,11 @@ impl Rotation {
         let up = up as u8;
         let angle = wrap_angle(angle) as u8;
         Self(angle | (up << Self::UP_SHIFT))
+    }
+    
+    #[inline]
+    pub const fn from_up(up: Direction) -> Self {
+        Self::new(up, 0)
     }
     
     #[inline]
@@ -253,8 +253,8 @@ impl Rotation {
     }
     
     #[inline]
-    pub fn iter() -> impl Iterator<Item = Self> {
-        (0..24).map(Self)
+    pub fn iter() -> RotationIterator {
+        RotationIterator::START
     }
     
     // verified (2025-12-28)
@@ -476,7 +476,7 @@ impl Rotation {
         })
     }
     
-    // verified (2025-12-28): reface and source_face are symmetrical. reface is verified to be correct.
+    // verified (2025-12-28): reface and source_face are symmetrical.
     /// Rotates direction.
     pub const fn reface(self, direction: Direction) -> Direction {
         match direction {
@@ -489,7 +489,7 @@ impl Rotation {
         }
     }
 
-    // verified (2025-12-28): source_face is verified to be correct.
+    // verified (2025-12-28): source_face and reface are symmetrical.
     /// Tells which [Direction] rotated to `destination`.
     pub const fn source_face(self, destination: Direction) -> Direction {
         // This code was bootstrap generated. I wrote a naive solution,
@@ -648,7 +648,6 @@ impl Rotation {
 
     // verified (2025-12-28)
     // double verified (2025-12-29)
-    //      NOTE: This was verified manually. It may be wrong. I didn't really know how to automate a test for this one. Maybe I'll figure it out later.
     /// Gets the angle of the face oriented to `world_face`.
     pub fn face_angle(self, world_face: Direction) -> u8 {
         use Direction::*;
@@ -841,17 +840,17 @@ impl Rotation {
 
     #[inline]
     pub const fn rotate_x(self, angle: i32) -> Self {
-        self.reorient(Self::X_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Self::X_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     #[inline]
     pub const fn rotate_y(self, angle: i32) -> Self {
-        self.reorient(Self::Y_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Self::Y_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     #[inline]
     pub const fn rotate_z(self, angle: i32) -> Self {
-        self.reorient(Self::Z_ROTATIONS[(angle & 3) as usize])
+        self.reorient(Self::Z_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     /// Rotate `face` counter-clockwise by `angle`. Use a negative `angle` to rotate clockwise.
@@ -895,6 +894,59 @@ impl Rotation {
 //         println!("{}", rot.source_face(Direction::NegZ));
 //     }
 // }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RotationIterator {
+    rotation: u8,
+}
+
+impl RotationIterator {
+    pub const START: Self = Self { rotation: 0 };
+    
+    #[inline]
+    pub const fn start_at(rotation: Rotation) -> Self {
+        Self { rotation: rotation.0 }
+    }
+    
+    #[inline]
+    pub const fn new() -> Self {
+        Self::START
+    }
+    
+    pub const fn current(self) -> Option<Rotation> {
+        if self.rotation == 24 {
+            return None;
+        }
+        Some(Rotation(self.rotation))
+    }
+}
+
+impl Iterator for RotationIterator {
+    type Item = Rotation;
+    
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        const MAX: u8 = 24;
+        let remain = (MAX - self.rotation) as usize;
+        (remain, Some(remain))
+    }
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.rotation == 24 {
+            return None;
+        }
+        let result = Some(Rotation(self.rotation));
+        self.rotation += 1;
+        result
+    }
+}
+
+impl From<Direction> for Rotation {
+    #[inline]
+    fn from(value: Direction) -> Self {
+        Self::new(value, 0)
+    }
+}
 
 impl std::fmt::Display for Rotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
