@@ -1,21 +1,44 @@
+/*---------------------------------------------------------------------------------------**
+||Angles increase in a counter-clockwise direction.                                      ||
+||To get the angle in degress, multiply `angle.rem_euclid(4)` or `(angle & 0b11)` by 90. ||
+||So an angle of 1 would be 90 degress, 2 would be 180, and 3 would be 270               ||
+**---------------------------------------------------------------------------------------*/
 
 use crate::{
     direction::Direction,
     orientation::Orientation,
 };
 
+// verified (2025-12-28)
+#[inline]
+pub const fn wrap_angle(angle: i32) -> i32 {
+    angle & Rotation::ANGLE_MASK_I32
+}
+
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rotation(pub u8);
 
 impl Rotation {
+    const ANGLE_MASK: u8 = 0b00000011;
+    const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
+    const UP_MASK   : u8 = 0b00011100;
+    /// ((up << UP_SHIFT) & UP_MASK) | (angle & ANGLE_MASK)
+    const UP_SHIFT: u32 = 2;
+    
     pub const UNROTATED: Rotation = Rotation::new(Direction::PosY, 0);
     pub const ROTATE_X: Rotation = Rotation::new(Direction::PosZ, 0);
+    pub const ROTATE_X_CCW: Rotation = Self::ROTATE_X;
+    pub const ROTATE_X_CW: Rotation = Self::ROTATE_X.invert();
     pub const ROTATE_Y: Rotation = Rotation::new(Direction::PosY, 1);
+    pub const ROTATE_Y_CCW: Rotation = Self::ROTATE_Y;
+    pub const ROTATE_Y_CW: Rotation = Self::ROTATE_Y.invert();
     pub const ROTATE_Z: Rotation = Rotation::new(Direction::NegX, 1);
+    pub const ROTATE_Z_CCW: Rotation = Self::ROTATE_Z;
+    pub const ROTATE_Z_CW: Rotation = Self::ROTATE_Z.invert();
     pub const X_ROTATIONS: [Rotation; 4] = Self::ROTATE_X.angles();
     pub const Y_ROTATIONS: [Rotation; 4] = Self::ROTATE_Y.angles();
-    pub const Z_ROTATIONS: [Rotation; 4] = Self::ROTATE_Z.angles();
+    pub const Z_ROTATIONS: [Rotation; 4] = Self::ROTATE_Z.angles();// verified
 
     // verified (2025-12-28)
     pub const CORNER_ROTATIONS_MATRIX: [[[[Rotation; 3]; 2]; 2]; 2] = [
@@ -42,9 +65,10 @@ impl Rotation {
     // verified (2025-12-28)
     #[inline]
     pub const fn face_rotation(face: Direction, angle: i32) -> Self {
-        Self::FACE_ROTATIONS[face.rotation_discriminant() as usize][(angle & 3) as usize]
+        Self::FACE_ROTATIONS[face.rotation_discriminant() as usize][wrap_angle(angle) as usize]
     }
-
+    
+    // verified (2025-12-28)
     pub const fn corner_rotation(x: i32, y: i32, z: i32, angle: i32) -> Rotation {
         let x = if x <= 0 {
             0
@@ -61,15 +85,15 @@ impl Rotation {
         } else {
             1
         } as usize;
-        let angle = (angle & 3) as usize;
+        let angle = wrap_angle(angle) as usize;
         Self::CORNER_ROTATIONS_MATRIX[y][z][x][angle]
     }
     
     #[inline]
     pub const fn new(up: Direction, angle: i32) -> Self {
         let up = up as u8;
-        let angle = (angle & 3) as u8;
-        Self(angle | up << 2)
+        let angle = wrap_angle(angle) as u8;
+        Self(angle | (up << Self::UP_SHIFT))
     }
     
     /// Creates a new [Rotation] with [Direction::NegX] as the up direction.
@@ -107,7 +131,8 @@ impl Rotation {
     pub const fn pos_z(angle: i32) -> Self {
         Self::new(Direction::PosZ, angle)
     }
-
+    
+    // verified (2025-12-28)
     /// A helper function to create 4 rotations for a rotation group.  
     /// A rotation group is a series of "contiguous" rotations. That is, the rotations are logically sequential.
     /// An example would be rotations around an axis, or around a face, where there are 4 rotations possible.
@@ -125,7 +150,8 @@ impl Rotation {
             angle3,
         ]
     }
-
+    
+    // verified (2025-12-28)
     /// A helper function to create 3 rotations for a corner rotation group.
     /// The first rotation is unrotated, the second rotation is the target rotation,
     /// and the third rotation is the target rotation applied to itself.
@@ -139,17 +165,19 @@ impl Rotation {
         ]
     }
 
-    
+    // verified (2025-12-28)
     #[inline]
     pub const fn with_flip(self, flip: super::Flip) -> Orientation {
         Orientation::new(self, flip)
     }
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn orientation(self) -> Orientation {
         self.with_flip(super::Flip::NONE)
     }
-
+    
+    // verified (2025-12-28)
     pub const fn from_up_and_forward(up: Direction, forward: Direction) -> Option<Rotation> {
         use Direction::*;
         Some(Rotation::new(up, match (up, forward) {
@@ -194,21 +222,20 @@ impl Rotation {
 
     #[inline]
     pub const fn angle(self) -> i32 {
-        (self.0 & 0b11) as i32
+        (self.0 & Self::ANGLE_MASK) as i32
     }
 
     #[inline]
     pub fn set_up(&mut self, up: Direction) {
-        let angle = self.0 & 0b11;
-        let up_and_angle = angle | ((up as u8) << 2);
-        self.0 = up_and_angle;
+        const ANGLE_ISOLATE_MASK: u8 = 0b00000011;
+        self.0 = (self.0 & ANGLE_ISOLATE_MASK) | (up.rotation_discriminant() << Self::UP_SHIFT);
     }
 
+    // verified (2025-12-28)
     #[inline]
     pub fn set_angle(&mut self, angle: i32) {
-        let top = self.0 & 0b11111100;
-        let angle = angle.rem_euclid(4) as u8;
-        self.0 = top | angle;
+        const UP_ISOLATE_MASK: u8 = 0b11111100;
+        self.0 = (self.0 & UP_ISOLATE_MASK) | wrap_angle(angle) as u8;
     }
     
     // verified (2025-12-28)
@@ -601,7 +628,8 @@ impl Rotation {
     }
 
     // verified (2025-12-28)
-    /// Gets the angle of the world face. 
+    //      NOTE: This was verified manually. It may be wrong. I didn't really know how to automate a test for this one. Maybe I'll figure it out later.
+    /// Gets the angle of the face oriented to `world_face`.
     pub fn face_angle(self, world_face: Direction) -> u8 {
         use Direction::*;
         match (self.angle(), self.up(), world_face) {
@@ -756,6 +784,7 @@ impl Rotation {
     // verified (2025-12-28)
     /// Rotate a [Rotation] by another [Rotation].
     pub const fn reorient(self, rotation: Self) -> Self {
+        // What??? I know I wrote this code, but this is kinda nuts.
         let up = self.up();
         let fwd = self.forward();
         let rot_up = rotation.reface(up);

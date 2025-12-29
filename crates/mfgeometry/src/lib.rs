@@ -1,3 +1,11 @@
+
+/*-------------------------------------------------------------------------------------*\
+||I find that sometimes, using big lookup tables is the best solution to your problem. ||
+||All of the functionality in this library can be done logically, but I think it will  ||
+||probably execute faster with the lookup tables and such. The logic to construct      ||
+||these tables was fairly complicated.                                                 ||
+\*-------------------------------------------------------------------------------------*/
+
 pub mod axis;
 pub mod cardinal;
 pub mod direction;
@@ -12,9 +20,21 @@ pub use flip::Flip;
 pub use orientation::Orientation;
 pub use rotation::Rotation;
 
+// this code feels like cheating.
+
+// verified (2025-12-28)
+// This packing format should remain consistent, and should be considered permanent.
+// Field
+// Flip    : 0..3 (3 bits)
+//      X: 0
+//      Y: 1
+//      Z: 2
+// Rotation: 3..8 (5 bits)
+//      angle: 3..5 (2 bits)
+//      up   : 5..8 (3 bits)
 #[inline]
 pub const fn pack_flip_and_rotation(flip: Flip, rotation: Rotation) -> u8 {
-    flip.0 | rotation.0 << 3
+    flip.0 | (rotation.0 << 3)
 }
 
 #[inline]

@@ -15,6 +15,7 @@ use crate::{
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
+    // The value of the discriminants is important! Do not change! (2025-12-28)
     /// Left
     NegX = 4,
     /// Down
@@ -30,6 +31,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    // verified (2025-12-28)
     /// All directions, ordered logically (`NegX`, `NegY`, `NegZ`, `PosX`, `PosY`, `PosZ`).
     pub const ALL: [Direction; 6] = [
         Direction::NegX,
@@ -40,6 +42,7 @@ impl Direction {
         Direction::PosZ
     ];
 
+    // verified (2025-12-28)
     /// All directions, ordered by discriminant.
     pub const INDEX_ORDER: [Direction; 6] = [
         Direction::PosY,
@@ -50,6 +53,7 @@ impl Direction {
         Direction::NegZ,
     ];
 
+    // verified(2025-12-28)
     /// All directions, ordered for a flood fill algorithm.
     /// ```no_run
     /// [PosY, NegY, PosX, NegX, PosZ, NegZ]
@@ -147,6 +151,19 @@ impl Direction {
             Direction::NegX => 4,
             Direction::NegZ => 5,
         }
+    }
+    
+    #[inline]
+    pub const fn from_rotation_discriminant(rotation_discriminant: u8) -> Option<Self> {
+        Some(match rotation_discriminant {
+            0 => Self::PosY,
+            1 => Self::PosX,
+            2 => Self::PosZ,
+            3 => Self::NegY,
+            4 => Self::NegX,
+            5 => Self::NegZ,
+            _ => return None,
+        })
     }
 
     /// Iterates in the order: `NegX`, `NegY`, `NegZ`, `PosX`, `PosY`, `PosZ`.

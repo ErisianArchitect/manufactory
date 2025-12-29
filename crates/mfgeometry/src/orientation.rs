@@ -6,38 +6,49 @@ use crate::{
     direction::Direction,
 };
 
+// Orientation is three values packed together.
+// The Flip, which is 3 bits.
+// The Rotation is 5 bits, and consists of two packed values:
+//      angle: 0..2
+//      up   : 2..5
+// Field   : Bit Range
+// Flip    : 0..3
+// Rotation: 3..8
+//      3..5 -> angle
+//      5..8 -> up
+#[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Orientation(pub(crate) u8);
 
 impl Orientation {
     pub const UNORIENTED: Orientation = Orientation::new(Rotation::new(Direction::PosY, 0), Flip::NONE);
     pub const ROTATE_X: Orientation = Rotation::ROTATE_X.orientation();
-    pub const X_ROTATIONS: [Orientation; 4] = Self::ROTATE_X.angles();
     pub const ROTATE_Y: Orientation = Rotation::ROTATE_Y.orientation();
-    pub const Y_ROTATIONS: [Orientation; 4] = Self::ROTATE_Y.angles();
     pub const ROTATE_Z: Orientation = Rotation::ROTATE_Z.orientation();
+    pub const X_ROTATIONS: [Orientation; 4] = Self::ROTATE_X.angles();
+    pub const Y_ROTATIONS: [Orientation; 4] = Self::ROTATE_Y.angles();
     pub const Z_ROTATIONS: [Orientation; 4] = Self::ROTATE_Z.angles();
 
     // FIXME: Make consistent with Rotation::CORNER_ROTATIONS_MATRIX
     pub const CORNER_ORIENTATIONS_MATRIX: [[[[Orientation; 3]; 2]; 2]; 2] = [
         [
-            [Rotation::new(Direction::PosZ, 3).orientation().corner_angles(), Rotation::new(Direction::NegX, 2).orientation().corner_angles()],
-            [Rotation::new(Direction::PosX, 0).orientation().corner_angles(), Rotation::new(Direction::NegZ, 1).orientation().corner_angles()]
+            [Rotation::new(Direction::PosX, 2).orientation().corner_angles(), Rotation::new(Direction::PosZ, 3).orientation().corner_angles()],
+            [Rotation::new(Direction::NegZ, 1).orientation().corner_angles(), Rotation::new(Direction::NegX, 0).orientation().corner_angles()]
         ],
         [
-            [Rotation::new(Direction::NegX, 0).orientation().corner_angles(), Rotation::new(Direction::NegZ, 3).orientation().corner_angles()],
-            [Rotation::new(Direction::PosZ, 1).orientation().corner_angles(), Rotation::new(Direction::PosX, 2).orientation().corner_angles()]
+            [Rotation::new(Direction::NegZ, 3).orientation().corner_angles(), Rotation::new(Direction::PosX, 0).orientation().corner_angles()],
+            [Rotation::new(Direction::NegX, 2).orientation().corner_angles(), Rotation::new(Direction::PosZ, 1).orientation().corner_angles()]
         ],
     ];
     
     // I think this is wrong (2025-12-28)
     pub const FACE_ORIENTATIONS: [[Orientation; 4]; 6] = [
-        Rotation::new(Direction::PosY, 1).orientation().angles(), // PosY
-        Rotation::new(Direction::NegZ, 2).orientation().angles(), // PosX
-        Rotation::new(Direction::PosX, 1).orientation().angles(), // PosZ
-        Rotation::new(Direction::PosY, 3).orientation().angles(), // NegY
-        Rotation::new(Direction::PosZ, 0).orientation().angles(), // NegX
-        Rotation::new(Direction::NegX, 3).orientation().angles(), // NegZ
+        Self::Y_ROTATIONS, // PosY
+        Self::X_ROTATIONS, // PosX
+        Self::Z_ROTATIONS, // PosZ
+        Self::ROTATE_Y.invert().angles(), // NegY
+        Self::ROTATE_X.invert().angles(), // NegX
+        Self::ROTATE_Z.invert().angles(), // NegZ
     ];
     
     /// An orientation that you can orient an orientation by to rotate around a face by angle. That was a mouthful.  
@@ -71,7 +82,8 @@ impl Orientation {
     pub const fn new(rotation: Rotation, flip: Flip) -> Self {
         Self(pack_flip_and_rotation(flip, rotation))
     }
-
+    
+    // verified (2025-12-28)
     /// A helper function to create 4 orientations for an orientation group.  
     /// An orientation group is a series of "contiguous" orientations. That is, the orientations are logically sequential.
     /// An example would be rotations around an axis, or around a face, where there are 4 orientations possible.
@@ -90,6 +102,7 @@ impl Orientation {
         ]
     }
 
+    // verified (2025-12-28)
     /// A helper function to create 3 orientations for a corner orientation group.
     /// The first orientation is unoriented, the second orientation is the target orientation,
     /// and the third orientation is the target orientation applied to itself.
