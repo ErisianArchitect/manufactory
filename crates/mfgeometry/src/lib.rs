@@ -1,10 +1,10 @@
 
-/*-------------------------------------------------------------------------------------*\
-||I find that sometimes, using big lookup tables is the best solution to your problem. ||
-||All of the functionality in this library can be done logically, but I think it will  ||
-||probably execute faster with the lookup tables and such. The logic to construct      ||
-||these tables was fairly complicated.                                                 ||
-\*-------------------------------------------------------------------------------------*/
+/*====================================================================================*\
+||I find that sometimes, using big lookup tables is the best solution to your problem.||
+||All of the functionality in this library can be done logically, but I think it will ||
+||probably execute faster with the lookup tables and such. The logic to construct     ||
+||these tables was fairly complicated.                                                ||
+\*====================================================================================*/
 
 pub mod axis;
 pub mod cardinal;
