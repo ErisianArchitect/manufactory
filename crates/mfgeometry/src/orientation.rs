@@ -465,6 +465,7 @@ impl std::fmt::Display for Orientation {
 //     }
 // }
 
+/// Used to iterate over each [Orientation] in the order where [Rotation] cycles before [Flip].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RotationFirstOrientationIterator {
     flip: u8,
