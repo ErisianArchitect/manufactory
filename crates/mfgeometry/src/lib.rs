@@ -124,6 +124,7 @@ mod tests {
     // verifies `source_face` function as well as symmetry between `reface` and `source_face`.
     #[test]
     fn reface_sourceface_symmetry_test() {
+        let start_time = std::time::Instant::now();
         for angle in 0..4 {
             for up in Direction::iter() {
                 let rotation = Rotation::new(up, angle);
@@ -134,6 +135,8 @@ mod tests {
                 }
             }
         }
+        let elapsed = start_time.elapsed();
+        println!("Elapsed Time: {elapsed:.3?}");
     }
     
     #[test]
