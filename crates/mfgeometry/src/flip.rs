@@ -1,86 +1,109 @@
-use crate::direction::Direction;
+// Last Reviewed: 2025-12-28
+use paste::paste;
+
+use crate::{direction::Direction};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Flip(pub u8);
 
+macro_rules! flip_axes {
+    ($(
+        {const $const_name:ident = $bin:literal; fn $fn_name:ident}
+    )*) => {
+        $(
+            paste!{
+                // pub const X: Self = Self(0b001);
+                pub const $const_name: Self = Self($bin);
+                // pub const fn x(self) -> bool {
+                //     self.0 & Self::X.0 == Self::X.0
+                // }
+                #[inline]
+                pub const fn $fn_name(self) -> bool {
+                    self.0 & Self::$const_name.0 == Self::$const_name.0
+                }
+                
+                // pub const fn set_x(&mut self, value: bool) -> bool {
+                //     let old = self.x();
+                //     if value {
+                //         self.0 |= Self::X.0;
+                //     } else {
+                //         self.0 &= const { Self::X.invert().0 };
+                //     }
+                //     old
+                // }
+                #[inline]
+                pub const fn [<set_ $fn_name>](&mut self, value: bool) -> bool {
+                    let old = self.$fn_name();
+                    if value {
+                        self.0 |= Self::$const_name.0;
+                    } else {
+                        self.0 &= const { Self::$const_name.invert().0 };
+                    }
+                    old
+                }
+                
+                // pub const fn with_x(mut self, value: bool) -> Self {
+                //     self.set_x(value);
+                //     self
+                // }
+                #[inline]
+                pub const fn [<with_ $fn_name>](mut self, value: bool) -> Self {
+                    self.[<set_ $fn_name>](value);
+                    self
+                }
+                
+                // pub const fn flip_x(self) -> Self {
+                //     Self(self.0 ^ Self::X.0)
+                // }
+                #[inline]
+                pub const fn [<flip_ $fn_name>](self) -> Self {
+                    Self(self.0 ^ Self::$const_name.0)
+                }
+            }
+        )*
+    };
+}
+
 impl Flip {
-    pub const X: Flip = Flip(0b001);
-    pub const XY: Flip = Flip(0b011);
-    pub const XZ: Flip = Flip(0b101);
-    pub const Y: Flip = Flip(0b010);
-    pub const YZ: Flip = Flip(0b110);
-    pub const Z: Flip = Flip(0b100);
-    pub const XYZ: Flip = Flip(0b111);
+    flip_axes!(
+        {const X   = 0b001; fn x  } // 1
+        {const XY  = 0b011; fn xy } // 3
+        {const XZ  = 0b101; fn xz } // 5
+        {const Y   = 0b010; fn y  } // 2
+        {const YZ  = 0b110; fn yz } // 6
+        {const Z   = 0b100; fn z  } // 4
+        {const XYZ = 0b111; fn xyz} // 7
+    );
     pub const ALL: Flip = Flip::XYZ;
     pub const NONE: Flip = Flip(0b000);
 
+    #[inline]
     pub const fn new(x: bool, y: bool, z: bool) -> Self {
         Self((x as u8) | ((y as u8) << 1) | ((z as u8) << 2))
     }
     
-    pub const fn x(self) -> bool {
-        self.0 & Flip::X.0 == Flip::X.0
+    #[inline]
+    pub const fn from_u8(flip: u8) -> Self {
+        Self(flip & Self::ALL.0)
+    }
+    
+    #[inline]
+    pub const fn to_u8(self) -> u8 {
+        self.0
     }
 
-    pub const fn y(self) -> bool {
-        self.0 & Flip::Y.0 == Flip::Y.0
-    }
-
-    pub const fn z(self) -> bool {
-        self.0 & Flip::Z.0 == Flip::Z.0
-    }
-
+    #[inline]
     pub const fn flip(self, flip: Flip) -> Self {
-        Self::new(self.x() ^ flip.x(), self.y() ^ flip.y(), self.z() ^ flip.z())
+        Self(self.0 ^ flip.0)
     }
-
-    pub fn set_x(&mut self, value: bool) -> bool {
-        let old = self.x();
-        if value {
-            self.0 = self.0 | Self::X.0;
-        } else {
-            self.0 = self.0 & Self::YZ.0;
-        }
-        old
-    }
-
-    pub fn set_y(&mut self, value: bool) -> bool {
-        let old = self.y();
-        if value {
-            self.0 = self.0 | Self::Y.0;
-        } else {
-            self.0 = self.0 & Self::XZ.0;
-        }
-        old
-    }
-
-    pub fn set_z(&mut self, value: bool) -> bool {
-        let old = self.z();
-        if value {
-            self.0 = self.0 | Self::Z.0;
-        } else {
-            self.0 = self.0 & Self::XY.0;
-        }
-        old
-    }
-
-    pub const fn flip_x(mut self) -> Self {
-        self.0 = self.0 ^ Flip::X.0;
-        self
-    }
-
-    pub const fn flip_y(mut self) -> Self {
-        self.0 = self.0 ^ Flip::Y.0;
-        self
-    }
-
-    pub const fn flip_z(mut self) -> Self {
-        self.0 = self.0 ^ Flip::Z.0;
-        self
+    
+    #[inline]
+    pub const fn invert(self) -> Self {
+        Self(self.0 ^ Self::ALL.0)
     }
 
     /// Xors all the bits.
-    pub const fn xor(self) -> bool {
+    pub const fn bits_xor(self) -> bool {
         self.x() ^ self.y() ^ self.z()
     }
 
@@ -113,11 +136,11 @@ impl Flip {
         }
     }
 
-    /// If the [Flip] is being used to flip vertices, this method determines if the indices need to be reversed.
-    #[inline]
-    pub const fn reverse_indices(self) -> bool {
-        self.x() ^ self.y() ^ self.z()
-    }
+    // /// If the [Flip] is being used to flip vertices, this method determines if the indices need to be reversed.
+    // #[inline]
+    // pub const fn reverse_indices(self) -> bool {
+    //     self.x() ^ self.y() ^ self.z()
+    // }
 
     // #[inline]
     // pub fn to_scale(self) -> glam::Vec3 {
@@ -145,14 +168,14 @@ impl Flip {
 impl std::ops::BitOr<Flip> for Flip {
     type Output = Self;
     
-    
+    #[inline]
     fn bitor(self, rhs: Flip) -> Self::Output {
         Self(self.0 | rhs.0)
     }
 }
 
 impl std::ops::BitOrAssign<Flip> for Flip {
-    
+    #[inline]
     fn bitor_assign(&mut self, rhs: Flip) {
         *self = *self | rhs;
     }
@@ -161,41 +184,45 @@ impl std::ops::BitOrAssign<Flip> for Flip {
 impl std::ops::BitAnd<Flip> for Flip {
     type Output = Self;
     
+    #[inline]
     fn bitand(self, rhs: Flip) -> Self::Output {
         Self(self.0 & rhs.0)
     }
 }
 
 impl std::ops::BitAndAssign<Flip> for Flip {
-    
+    #[inline]
     fn bitand_assign(&mut self, rhs: Flip) {
-        *self = *self & rhs;
+        self.0 &= rhs.0
     }
 }
 
 impl std::ops::Add<Flip> for Flip {
     type Output = Flip;
-    
+    #[inline]
     fn add(self, rhs: Flip) -> Self::Output {
         self | rhs
     }
 }
 
 impl std::ops::AddAssign<Flip> for Flip {
+    #[inline]
     fn add_assign(&mut self, rhs: Flip) {
-        *self = *self | rhs;
+        self.0 |= rhs.0;
     }
 }
 
 impl std::ops::Sub<Flip> for Flip {
     type Output = Flip;
     
+    #[inline]
     fn sub(self, rhs: Flip) -> Self::Output {
         self & !rhs
     }
 }
 
 impl std::ops::SubAssign<Flip> for Flip {
+    #[inline]
     fn sub_assign(&mut self, rhs: Flip) {
         *self = *self & !rhs;
     }
@@ -204,8 +231,9 @@ impl std::ops::SubAssign<Flip> for Flip {
 impl std::ops::Not for Flip {
     type Output = Self;
     
+    #[inline]
     fn not(self) -> Self::Output {
-        Self(!self.0 & 0b111)
+        Self(self.0 ^ 0b111)
     }
 }
 

@@ -18,6 +18,7 @@ impl Orientation {
     pub const ROTATE_Z: Orientation = Rotation::ROTATE_Z.orientation();
     pub const Z_ROTATIONS: [Orientation; 4] = Self::ROTATE_Z.angles();
 
+    // FIXME: Make consistent with Rotation::CORNER_ROTATIONS_MATRIX
     pub const CORNER_ORIENTATIONS_MATRIX: [[[[Orientation; 3]; 2]; 2]; 2] = [
         [
             [Rotation::new(Direction::PosZ, 3).orientation().corner_angles(), Rotation::new(Direction::NegX, 2).orientation().corner_angles()],

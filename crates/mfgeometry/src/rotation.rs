@@ -17,20 +17,19 @@ impl Rotation {
     pub const Y_ROTATIONS: [Rotation; 4] = Self::ROTATE_Y.angles();
     pub const Z_ROTATIONS: [Rotation; 4] = Self::ROTATE_Z.angles();
 
-    // FIXME: Fix CORNER_ROTATIONS_MATRIX
-    // TODO: Create visualizer program to help with orientations.
-
+    // verified (2025-12-28)
     pub const CORNER_ROTATIONS_MATRIX: [[[[Rotation; 3]; 2]; 2]; 2] = [
         [
-            [Rotation::new(Direction::PosZ, 3).corner_angles(), Rotation::new(Direction::NegX, 2).corner_angles()],
-            [Rotation::new(Direction::PosX, 0).corner_angles(), Rotation::new(Direction::NegZ, 1).corner_angles()]
+            [Rotation::new(Direction::PosX, 2).corner_angles(), Rotation::new(Direction::PosZ, 3).corner_angles()],
+            [Rotation::new(Direction::NegZ, 1).corner_angles(), Rotation::new(Direction::NegX, 0).corner_angles()],
         ],
         [
-            [Rotation::new(Direction::NegX, 0).corner_angles(), Rotation::new(Direction::NegZ, 3).corner_angles()],
-            [Rotation::new(Direction::PosZ, 1).corner_angles(), Rotation::new(Direction::PosX, 2).corner_angles()]
+            [Rotation::new(Direction::NegZ, 3).corner_angles(), Rotation::new(Direction::PosX, 0).corner_angles()],
+            [Rotation::new(Direction::NegX, 2).corner_angles(), Rotation::new(Direction::PosZ, 1).corner_angles()],
         ],
     ];
 
+    // verified (2025-12-28)
     pub const FACE_ROTATIONS: [[Rotation; 4]; 6] = [
         Self::Y_ROTATIONS, // PosY
         Self::X_ROTATIONS, // PosX
@@ -40,9 +39,10 @@ impl Rotation {
         Self::ROTATE_Z.invert().angles(), // NegZ
     ];
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn face_rotation(face: Direction, angle: i32) -> Self {
-        Self::FACE_ROTATIONS[face as usize][(angle & 3) as usize]
+        Self::FACE_ROTATIONS[face.rotation_discriminant() as usize][(angle & 3) as usize]
     }
 
     pub const fn corner_rotation(x: i32, y: i32, z: i32, angle: i32) -> Rotation {
@@ -61,14 +61,14 @@ impl Rotation {
         } else {
             1
         } as usize;
-        let angle = angle.rem_euclid(3) as usize;
+        let angle = (angle & 3) as usize;
         Self::CORNER_ROTATIONS_MATRIX[y][z][x][angle]
     }
     
     #[inline]
     pub const fn new(up: Direction, angle: i32) -> Self {
         let up = up as u8;
-        let angle = angle.rem_euclid(4) as u8;
+        let angle = (angle & 3) as u8;
         Self(angle | up << 2)
     }
     
@@ -150,7 +150,6 @@ impl Rotation {
         self.with_flip(super::Flip::NONE)
     }
 
-
     pub const fn from_up_and_forward(up: Direction, forward: Direction) -> Option<Rotation> {
         use Direction::*;
         Some(Rotation::new(up, match (up, forward) {
@@ -211,7 +210,8 @@ impl Rotation {
         let angle = angle.rem_euclid(4) as u8;
         self.0 = top | angle;
     }
-
+    
+    // verified (2025-12-28)
     pub const fn up(self) -> Direction {
         let up = self.0 >> 2;
         match up {
@@ -225,6 +225,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     pub const fn down(self) -> Direction {
         let up = self.0 >> 2;
         match up {
@@ -238,6 +239,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     pub const fn left(self) -> Direction {
         use Direction::*;
         match (self.angle(), self.up()) {
@@ -269,6 +271,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     pub const fn right(self) -> Direction {
         use Direction::*;
         match (self.angle(), self.up()) {
@@ -300,6 +303,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     pub const fn forward(self) -> Direction {
         use Direction::*;
         match (self.angle(), self.up()) {
@@ -331,6 +335,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     pub const fn backward(self) -> Direction {
         // self.forward().invert()
         use Direction::*;
@@ -363,6 +368,7 @@ impl Rotation {
         }        
     }
 
+    // unverified (2025-12-28)
     /// Rotates `coord`.
     pub fn rotate_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T, T)> + From<(T, T, T)>>(self, coord: C) -> C {
         let (x, y, z): (T, T, T) = coord.into();
@@ -423,7 +429,8 @@ impl Rotation {
             _  => unreachable!(),
         })
     }
-
+    
+    // verified (2025-12-28): reface and source_face are symmetrical. reface is verified to be correct.
     /// Rotates direction.
     pub const fn reface(self, direction: Direction) -> Direction {
         match direction {
@@ -436,12 +443,13 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28): source_face is verified to be correct.
     /// Tells which [Direction] rotated to `destination`.
     pub const fn source_face(self, destination: Direction) -> Direction {
         // This code was bootstrap generated. I wrote a naive solution,
         // then generated this code with the naive solution.
         // Besides maybe if you rearrange the order of matching,
-        // this should be theoretically the optimal solution.
+        // this should theoretically be the optimal solution.
         use Direction::*;
         match ((self.angle(), self.up()), destination) {
             ((0, PosY), PosY) => PosY,
@@ -592,10 +600,11 @@ impl Rotation {
         }
     }
 
-    /// Gets the angle of the source face. 
-    pub fn face_angle(self, face: Direction) -> u8 {
+    // verified (2025-12-28)
+    /// Gets the angle of the world face. 
+    pub fn face_angle(self, world_face: Direction) -> u8 {
         use Direction::*;
-        match (self.angle(), self.up(), face) {// unfinished after this point (<-- What? Hating past me right now.)
+        match (self.angle(), self.up(), world_face) {
             (0, NegX, NegX) => 0,
             (0, NegX, NegY) => 1,
             (0, NegX, NegZ) => 3,
@@ -662,7 +671,7 @@ impl Rotation {
             (1, PosY, PosX) => 0,
             (1, PosY, PosY) => 1,
             (1, PosY, PosZ) => 0,
-            (1, PosZ, NegX) => 1,
+            (1, PosZ, NegX) => 3,
             (1, PosZ, NegY) => 0,
             (1, PosZ, NegZ) => 1,
             (1, PosZ, PosX) => 1,
@@ -744,6 +753,7 @@ impl Rotation {
         }
     }
 
+    // verified (2025-12-28)
     /// Rotate a [Rotation] by another [Rotation].
     pub const fn reorient(self, rotation: Self) -> Self {
         let up = self.up();
@@ -758,6 +768,7 @@ impl Rotation {
         rot
     }
 
+    // verified (2025-12-28)
     /// Rotate a [Rotation] by the inverse of another [Rotation].
     pub const fn deorient(self, rotation: Self) -> Self {
         let up = self.up();
@@ -772,6 +783,7 @@ impl Rotation {
         rot
     }
     
+    // verified (2025-12-28)
     /// Creates a [Rotation] that when rotated by the original will create the base [Rotation].
     #[inline]
     pub const fn invert(self) -> Self {
@@ -793,7 +805,7 @@ impl Rotation {
         self.reorient(Self::Z_ROTATIONS[(angle & 3) as usize])
     }
 
-    /// Rotate `face` clockwise by `angle`. Use a negative `angle` to rotate counter-clockwise.
+    /// Rotate `face` counter-clockwise by `angle`. Use a negative `angle` to rotate clockwise.
     #[inline]
     pub const fn rotate_face(self, face: Direction, angle: i32) -> Self {
         let rot = Self::face_rotation(face, angle);

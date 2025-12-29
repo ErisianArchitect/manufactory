@@ -1,28 +1,29 @@
+// Last Reviewed: (2025-12-28)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Cardinal {
-    /// -X
-    West  = 0,
     /// -Z
-    North = 1,
-    /// +X
-    East  = 2,
+    North = 0,
+    /// -X
+    West  = 1,
     /// +Z
-    South = 3,
+    South = 2,
+    /// +X
+    East  = 3,
 }
 
 impl Cardinal {
     pub const FORWARD: Cardinal = Cardinal::North;
+    pub const LEFT: Cardinal = Cardinal::West;
     pub const BACKWARD: Cardinal = Cardinal::South;
     pub const RIGHT: Cardinal = Cardinal::East;
-    pub const LEFT: Cardinal = Cardinal::West;
-    /// Ordered: West, North, East, South
+    /// Ordered: West, South, East, North
     pub const ALL: [Cardinal; 4] = [
-        Cardinal::West,
         Cardinal::North,
-        Cardinal::East,
+        Cardinal::West,
         Cardinal::South,
+        Cardinal::East,
     ];
 
     pub const FLOOD_NORTH_EAST: [Cardinal; 4] = [
@@ -53,17 +54,17 @@ impl Cardinal {
         Cardinal::East,
     ];
 
-    /// Rotates the [Cardinal] direction clockwise by `rotation`.
+    /// Rotates the [Cardinal] direction counter-clockwise by `rotation`.
     #[inline]
     pub const fn rotate(self, rotation: i32) -> Self {
         const CARDS: [Cardinal; 4] = [
-            Cardinal::West,
             Cardinal::North,
+            Cardinal::West,
+            Cardinal::South,
             Cardinal::East,
-            Cardinal::South
         ];
-        let index = self as i32;
-        let rot_index = (index + rotation).rem_euclid(4);
+        let index = self.angle() as i32;
+        let rot_index = (index as i64 + rotation as i64).rem_euclid(4);
         CARDS[rot_index as usize]
     }
 
@@ -71,10 +72,10 @@ impl Cardinal {
     #[inline]
     pub const fn invert(self) -> Self {
         match self {
-            Cardinal::West => Cardinal::East,
-            Cardinal::East => Cardinal::West,
             Cardinal::North => Cardinal::South,
+            Cardinal::West => Cardinal::East,
             Cardinal::South => Cardinal::North,
+            Cardinal::East => Cardinal::West,
         }
     }
 
@@ -87,6 +88,16 @@ impl Cardinal {
     #[inline]
     pub const fn discriminant(self) -> u8 {
         self as u8
+    }
+    
+    #[inline]
+    pub const fn angle(self) -> u8 {
+        match self {
+            Cardinal::North => 0,
+            Cardinal::West => 1,
+            Cardinal::South => 2,
+            Cardinal::East => 3,
+        }
     }
 
     #[inline]
@@ -127,10 +138,10 @@ impl Cardinal {
     #[inline]
     pub const fn to_ituple2(self) -> (i32, i32) {
         match self {
-            Cardinal::West => (-1, 0),
             Cardinal::North => (0, -1),
-            Cardinal::East => (1, 0),
+            Cardinal::West => (-1, 0),
             Cardinal::South => (0, 1),
+            Cardinal::East => (1, 0),
         }
     }
 
@@ -147,10 +158,10 @@ impl Cardinal {
     #[inline]
     pub const fn to_ftuple2(self) -> (f32, f32) {
         match self {
-            Cardinal::West => (-1., 0.),
             Cardinal::North => (0., -1.),
-            Cardinal::East => (1., 0.),
+            Cardinal::West => (-1., 0.),
             Cardinal::South => (0., 1.),
+            Cardinal::East => (1., 0.),
         }
     }
 
@@ -167,10 +178,10 @@ impl Cardinal {
     #[inline]
     pub const fn to_ituple3(self) -> (i32, i32, i32) {
         match self {
-            Cardinal::West => (-1, 0, 0),
             Cardinal::North => (0, 0, -1),
-            Cardinal::East => (1, 0, 0),
+            Cardinal::West => (-1, 0, 0),
             Cardinal::South => (0, 0, 1),
+            Cardinal::East => (1, 0, 0),
         }
     }
 
@@ -187,10 +198,10 @@ impl Cardinal {
     #[inline]
     pub const fn to_ftuple3(self) -> (f32, f32, f32) {
         match self {
-            Cardinal::West => (-1., 0., 0.),
             Cardinal::North => (0., 0., -1.),
-            Cardinal::East => (1., 0., 0.),
+            Cardinal::West => (-1., 0., 0.),
             Cardinal::South => (0., 0., 1.),
+            Cardinal::East => (1., 0., 0.),
         }
     }
 }

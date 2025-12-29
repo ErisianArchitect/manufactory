@@ -1,6 +1,10 @@
 use mfhash::{HashSeed, deterministic::DeterministicHash};
 use mffmt::hex::HexBytes as Hex;
 
+fn quick_test() {
+    
+}
+
 fn main() {
     let seed = HashSeed::derived("This is a test.");
     let mut hasher = seed.build_hasher();

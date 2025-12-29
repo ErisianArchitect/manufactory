@@ -1,3 +1,5 @@
+// Last Reviewed: 2025-12-28
+
 use crate::{
     axis::Axis,
     flip::Flip,
@@ -67,6 +69,11 @@ impl Direction {
     pub const RIGHT: Direction = Direction::PosX;
     pub const UP: Direction = Direction::PosY;
     pub const BACKWARD: Direction = Direction::PosZ;
+    
+    pub const NORTH: Direction = Direction::FORWARD;
+    pub const WEST: Direction = Direction::LEFT;
+    pub const SOUTH: Direction = Direction::BACKWARD;
+    pub const EAST: Direction = Direction::RIGHT;
 
     /// Invert the [Direction]. (`NegX` becomes `PosX`, `PosX` becomes `NegX`, etc.)
     #[inline]
@@ -81,6 +88,7 @@ impl Direction {
         }
     }
 
+    // verified (2025-12-28)
     /// Flips the [Direction] based on [Flip].
     #[inline]
     pub const fn flip(self, flip: Flip) -> Self {
@@ -96,12 +104,14 @@ impl Direction {
         }
     }
 
+    // verified (2025-12-28)
     /// Rotates the [Direction] by [Rotation].
     #[inline]
     pub fn rotate(self, rotation: Rotation) -> Self {
         rotation.reface(self)
     }
 
+    // verified (2025-12-28)
     /// Gets the [Axis] of the [Direction]
     #[inline]
     pub const fn axis(self) -> Axis {
@@ -124,7 +134,9 @@ impl Direction {
     pub const fn discriminant(self) -> u8 {
         self as u8
     }
-
+    
+    // verified (2025-12-28)
+    // This order must not change! Certain code depends on it.
     #[inline]
     pub const fn rotation_discriminant(self) -> u8 {
         match self {
@@ -148,7 +160,8 @@ impl Direction {
     pub fn iter_discriminant_order() -> impl Iterator<Item = Direction> {
         Self::INDEX_ORDER.into_iter()
     }
-
+    
+    // verified (2025-12-28)
     /// On a non-oriented cube, each face has an "up" face. That's the face
     /// whose normal points to the top of the given face's UV plane.
     #[inline]
@@ -163,22 +176,19 @@ impl Direction {
             PosZ => PosY,
         }
     }
-
-    /// On a non-oriented cube, each face has a "down" face. That's the face
-    /// whose normal points to the bottom of the given face's UV plane.
-    #[inline]
-    pub const fn down(self) -> Direction {
-        use Direction::*;
-        match self {
-            NegX => NegY,
-            NegY => NegZ,
-            NegZ => NegY,
-            PosX => NegY,
-            PosY => PosZ,
-            PosZ => NegY,
+    
+    // verified (2025-12-28)
+    pub const fn up_at_angle(self, angle: i32) -> Direction {
+        match angle & 3 {
+            0 => self.up(),
+            1 => self.left(),
+            2 => self.down(),
+            3 => self.right(),
+            _ => unreachable!(),
         }
     }
 
+    // verified (2025-12-28)
     /// On a non-oriented cube, each face has a "left" face. That's the face
     /// whose normal points to the left of the given face's UV plane.
     #[inline]
@@ -193,7 +203,46 @@ impl Direction {
             PosZ => NegX,
         }
     }
+    
+    // verified (2025-12-28)
+    pub const fn left_at_angle(self, angle: i32) -> Direction {
+        match angle & 3 {
+            0 => self.left(),
+            1 => self.down(),
+            2 => self.right(),
+            3 => self.up(),
+            _ => unreachable!(),
+        }
+    }
 
+    // verified (2025-12-28)
+    /// On a non-oriented cube, each face has a "down" face. That's the face
+    /// whose normal points to the bottom of the given face's UV plane.
+    #[inline]
+    pub const fn down(self) -> Direction {
+        use Direction::*;
+        match self {
+            NegX => NegY,
+            NegY => NegZ,
+            NegZ => NegY,
+            PosX => NegY,
+            PosY => PosZ,
+            PosZ => NegY,
+        }
+    }
+    
+    // verified (2025-12-28)
+    pub const fn down_at_angle(self, angle: i32) -> Direction {
+        match angle & 3 {
+            0 => self.down(),
+            1 => self.right(),
+            2 => self.up(),
+            3 => self.left(),
+            _ => unreachable!(),
+        }
+    }
+
+    // verified (2025-12-28)
     /// On a non-oriented cube, each face has a "right" face. That's the face
     /// whose normal points to the right of the given face's UV plane.
     #[inline]
@@ -209,38 +258,9 @@ impl Direction {
         }
     }
     
-    pub const fn up_at_angle(self, angle: i32) -> Direction {
-        match angle.rem_euclid(4) {
-            0 => self.up(),
-            1 => self.left(),
-            2 => self.down(),
-            3 => self.right(),
-            _ => unreachable!(),
-        }
-    }
-    
-    pub const fn left_at_angle(self, angle: i32) -> Direction {
-        match angle.rem_euclid(4) {
-            0 => self.left(),
-            1 => self.down(),
-            2 => self.right(),
-            3 => self.up(),
-            _ => unreachable!(),
-        }
-    }
-    
-    pub const fn down_at_angle(self, angle: i32) -> Direction {
-        match angle.rem_euclid(4) {
-            0 => self.down(),
-            1 => self.right(),
-            2 => self.up(),
-            3 => self.left(),
-            _ => unreachable!(),
-        }
-    }
-    
+    // verified (2025-12-28)
     pub const fn right_at_angle(self, angle: i32) -> Direction {
-        match angle.rem_euclid(4) {
+        match angle & 3 {
             0 => self.right(),
             1 => self.up(),
             2 => self.left(),
@@ -277,6 +297,7 @@ impl Direction {
     //     }
     // }
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn to_ftuple(self) -> (f32, f32, f32) {
         use Direction::*;
@@ -290,6 +311,7 @@ impl Direction {
         }
     }
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn to_ituple(self) -> (i32, i32, i32) {
         use Direction::*;
@@ -303,12 +325,14 @@ impl Direction {
         }
     }
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn to_farray(self) -> [f32; 3] {
         let (x, y, z) = self.to_ftuple();
         [x, y, z]
     }
 
+    // verified (2025-12-28)
     #[inline]
     pub const fn to_iarray(self) -> [i32; 3] {
         let (x, y, z) = self.to_ituple();
@@ -366,6 +390,7 @@ impl Into<[f32; 3]> for Direction {
     }
 }
 
+// verified (2025-12-28)
 impl std::fmt::Display for Direction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

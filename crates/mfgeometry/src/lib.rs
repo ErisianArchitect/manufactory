@@ -31,27 +31,97 @@ mod tests {
     
     #[test]
     fn orientation_test() {
-        macro_rules! test_rot {
-            ($(
-                $up:ident($rot:literal) => $dir:ident -> $expect:ident
-            ),*$(,)?) => {
-                $(
-                    {
-                        let orient = Orientation::new(Rotation::new(Direction::$up, $rot), Flip::NONE);
-                        let dir = Direction::$dir;
-                        let dir_rot = orient.reface(dir);
-                        assert_eq!(dir_rot, Direction::$expect, stringify!(($up, $rot) => $dir -> $expect));
-                    }
-                )*
-            };
+        // macro_rules! test_rot {
+        //     ($(
+        //         $up:ident($rot:literal) => $dir:ident -> $expect:ident
+        //     ),*$(,)?) => {
+        //         $(
+        //             {
+        //                 let orient = Orientation::new(Rotation::new(Direction::$up, $rot), Flip::NONE);
+        //                 let dir = Direction::$dir;
+        //                 let dir_rot = orient.reface(dir);
+        //                 assert_eq!(dir_rot, Direction::$expect, stringify!(($up, $rot) => $dir -> $expect));
+        //             }
+        //         )*
+        //     };
+        // }
+        for dir in Direction::iter() {
+            let orient = Orientation::new(Rotation::new(dir, 1), Flip::NONE);
+            
+            let orient_face = orient.rotation().up();
+            assert_eq!(orient.forward(), orient_face.left(), "forward: {dir}");
+            
+            assert_eq!(
+                orient.reface(Direction::FORWARD),
+                orient_face.left(),
+                "{dir}: Forward -> Left"
+            );
+            assert_eq!(
+                orient.reface(Direction::LEFT),
+                orient_face.down(),
+                "{dir}: Left -> Down"
+            );
+            assert_eq!(
+                orient.reface(Direction::BACKWARD),
+                orient_face.right(),
+                "{dir}: Back -> Right"
+            );
+            assert_eq!(
+                orient.reface(Direction::RIGHT),
+                orient_face.up(),
+                "{dir}: Right -> Up"
+            );
         }
-        test_rot!(
-            UP(1) => FORWARD -> LEFT,
-            BACKWARD(2) => UP -> BACKWARD,
-        );
-        let orient = Orientation::new(Rotation::new(Direction::PosY, 1), Flip::NONE);
-        let fwd = Direction::FORWARD;
-        let fwd_rot = orient.reface(fwd);
-        assert_eq!(fwd_rot, Direction::LEFT);
+    }
+    
+    /// verifies [Rotation::reface] function. By extension, also verifies [Rotation::up], [Rotation::down], [Rotation::left], [Rotation::right], [Rotation::forward], and [Rotation::backward].
+    #[test]
+    fn orientation_query_test() {
+        // Since all of the functions used in this function are verified, this is
+        // another way to rotate faces. This is used to verify the `reface` function.
+        fn rotate_world(up: Direction, angle: i32, world: Direction) -> Direction {
+            match world {
+                Direction::NegX => up.left_at_angle(angle),
+                Direction::NegY => up.invert(),
+                Direction::NegZ => up.up_at_angle(angle),
+                Direction::PosX => up.right_at_angle(angle),
+                Direction::PosY => up,
+                Direction::PosZ => up.down_at_angle(angle),
+            }
+        }
+        for angle in 0..4 {
+            for up in Direction::iter() {
+                for world in Direction::iter() {
+                    let rotation = Rotation::new(up, angle);
+                    let rot_world = rotation.reface(world);
+                    let rot_world_alt = rotate_world(up, angle, world);
+                    assert_eq!(rot_world, rot_world_alt, "(rot: [up: {up}, angle: {angle}], world: {world})");
+                }
+            }
+        }
+    }
+    
+    // verifies `source_face` function as well as symmetry between `reface` and `source_face`.
+    #[test]
+    fn reface_sourceface_symmetry_test() {
+        for angle in 0..4 {
+            for up in Direction::iter() {
+                let rotation = Rotation::new(up, angle);
+                for world in Direction::iter() {
+                    let refaced = rotation.reface(world);
+                    let source = rotation.source_face(refaced);
+                    assert_eq!(source, world);
+                }
+            }
+        }
+    }
+    
+    #[test]
+    fn face_angle_test() {
+        for angle in 0..4 {
+            for up in Direction::iter() {
+                let rotation = Rotation::new(up, angle);
+            }
+        }
     }
 }
