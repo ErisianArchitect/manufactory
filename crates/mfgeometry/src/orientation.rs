@@ -113,7 +113,7 @@ impl Orientation {
     /// If angle == 0, orientation is default orientation.
     #[inline]
     pub const fn face_orientation(face: Direction, angle: i32) -> Self {
-        Self::FACE_ORIENTATIONS[face as usize][wrap_angle(angle) as usize]
+        Self::FACE_ORIENTATIONS[face.rotation_discriminant() as usize][wrap_angle(angle) as usize]
     }
     
     // `n <= 0` == `-N`, `n > 0` == `+N`
@@ -208,6 +208,11 @@ impl Orientation {
     #[inline]
     pub const fn flip(self) -> Flip {
         Flip(self.0 & 0b111)
+    }
+    
+    #[inline]
+    pub const fn flipped(self, flip: Flip) -> Self {
+        Self(self.0 ^ flip.0)
     }
 
     #[inline]
@@ -385,9 +390,24 @@ impl Orientation {
         let flipup = reup.flip(flip);
         let flipfwd = refwd.flip(flip);
         let Some(rot) = Rotation::from_up_and_forward(flipup, flipfwd) else {
-            unreachable!()
+            // SAFETY: This is guaranteed to never be reached, as all of the logic has been verified.
+            unsafe { ::core::hint::unreachable_unchecked() }
         };
         Orientation::new(rot, flip)
+    }
+    
+    #[inline]
+    pub const fn reorient_local(self, orientation: Orientation) -> Self {
+        // I'm pretty sure my logic is correct. It should be that you first orient into local space then orient.
+        /*
+        stage1 = target * orientation
+        stage2 = stage1 * target
+        result = target * stage2
+        */
+        // wtf... how does this work?
+        let stage1 = self.reorient(orientation);
+        let stage2 = stage1.reorient(self);
+        self.reorient(stage2)
     }
 
     /// Remove an orientation from an orientation.
@@ -401,9 +421,17 @@ impl Orientation {
         let flipup = reup.flip(flip);
         let flipfwd = refwd.flip(flip);
         let Some(rot) = Rotation::from_up_and_forward(flipup, flipfwd) else {
-            unreachable!()
+            // SAFETY: This is guaranteed to never be reached, as all of the logic has been verified.
+            unsafe { ::core::hint::unreachable_unchecked() }
         };
         Orientation::new(rot, flip)
+    }
+    
+    #[inline]
+    pub const fn deorient_local(self, orientation: Orientation) -> Self {
+        let stage1 = self.reorient(orientation);
+        let stage2 = stage1.reorient(self);
+        self.deorient(stage2)
     }
     
     /// Returns the orientation that can be applied to deorient by [self].
@@ -415,43 +443,43 @@ impl Orientation {
     /// Flip the [Orientation] along the `X` axis.
     #[inline]
     pub const fn flip_x(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_x())
+        self.flipped(Flip::X)
     }
 
     /// Flip the [Orientation] along the `Y` axis.
     #[inline]
     pub const fn flip_y(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_y())
+        self.flipped(Flip::Y)
     }
 
     /// Flip the [Orientation] along the `Z` axis.
     #[inline]
     pub const fn flip_z(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_z())
+        self.flipped(Flip::Z)
     }
     
     /// Flip the [Orientation] along the `X` and `Y` axes.
     #[inline]
     pub const fn flip_xy(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_xy())
+        self.flipped(Flip::XY)
     }
     
     /// Flip the [Orientation] along the `X` and `Z` axes.
     #[inline]
     pub const fn flip_xz(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_xz())
+        self.flipped(Flip::XZ)
     }
     
     // Flip the [Orientation] along the `Y` and `Z` axes.
     #[inline]
     pub const fn flip_yz(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_yz())
+        self.flipped(Flip::YZ)
     }
     
     /// Flip the [Orientation] along the `X`, `Y`, and `Z` axes.
     #[inline]
     pub const fn flip_xyz(self) -> Self {
-        Orientation::new(self.rotation(), self.flip().flip_xyz())
+        self.flipped(Flip::XYZ)
     }
 
     #[inline]

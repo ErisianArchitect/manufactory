@@ -10,6 +10,29 @@ use crate::{
     wrap_angle,
 };
 
+// For cache alignment on most targets.
+#[repr(C, align(64))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct Cached256ByteArray([u8; 256]);
+
+// 
+pub(crate) const CACHED_WRAP_U8_ARRAY: Cached256ByteArray = Cached256ByteArray({
+    const ROTATIONS_COUNT_U8: u8 = 24;
+    let mut arr: [u8; 256] = [0u8; 256];
+    let mut index: usize = 0;
+    while index < 256 {
+        let answer: u8 = index as u8 % ROTATIONS_COUNT_U8;
+        arr[index] = answer;
+        index += 1usize;
+    }
+    arr
+});
+
+#[inline]
+pub const fn wrap_rotation_u8(rotation: u8) -> u8 {
+    CACHED_WRAP_U8_ARRAY.0[rotation as usize]
+}
+
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rotation(pub(crate) u8);
@@ -18,6 +41,8 @@ impl Rotation {
     pub const MIN: Self = Self(0);
     // only 24 valid rotations (6 sides * 4 angles)
     pub const MAX: Self = Self(23);
+    
+    pub(crate) const WRAP_U8: u8 = 6/* sides */ * 4/* angles */;
     pub(crate) const ANGLE_MASK: u8 = 0b00000011;
     pub(crate) const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
     /// ((up << UP_SHIFT) & UP_MASK) | (angle & ANGLE_MASK)
@@ -111,6 +136,16 @@ impl Rotation {
         }
         // SAFETY: Guard clause ensures that u8 is valid value.
         Some(unsafe { Self::from_u8_unchecked(value) })
+    }
+    
+    #[inline]
+    pub(crate) const fn wrap_rotation_u8(rotation: u8) -> u8 {
+        rotation % Self::WRAP_U8
+    }
+    
+    #[inline]
+    pub const fn from_u8_wrapping(value: u8) -> Self {
+        unsafe { Self::from_u8_unchecked(value % Self::WRAP_U8) }
     }
     
     #[inline]
@@ -458,7 +493,7 @@ impl Rotation {
             00 /* (0, PosY) */ => (x, y, z), // Default rotation, no change.
             01 /* (1, PosY) */ => (z, y, -x),
             02 /* (2, PosY) */ => (-x, y, -z),
-            03 /* (3, PosY) */ => (-z, y, x),
+            03 /* (3, PosY) */ => (-z, y, x), // I think this might be correct, needs further verification (2025-12-29)
             04 /* (0, PosX) */ => (y, -z, -x),
             05 /* (1, PosX) */ => (y, x, -z),
             06 /* (2, PosX) */ => (y, z, x),
