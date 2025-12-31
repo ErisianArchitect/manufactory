@@ -132,7 +132,6 @@ make_item_type!(
             text: "Iron Ore (Crushed)",
             id: res_id!(Iron, IngotPrecursor),
         },
-        // TODO: IronIngot precursor
         IronIngot {
             text: "Iron Ingot",
             id: res_id!(Iron, Ingot),

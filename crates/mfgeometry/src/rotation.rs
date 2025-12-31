@@ -539,6 +539,9 @@ impl Rotation {
         // then generated this code with the naive solution.
         // Besides maybe if you rearrange the order of matching,
         // this should theoretically be the optimal solution.
+        // This CAN be optimized by flattening the key space.
+        // By combining the angle, up, and destination into a single index,
+        // this could become an O(1) lookup into a table.
         use Direction::*;
         match ((self.angle(), self.up()), destination) {
             ((0, PosY), PosY) => PosY,
@@ -923,20 +926,6 @@ impl Rotation {
     //     )
     // }
 }
-
-// #[cfg(test)]
-// mod testing_sandbox {
-//     // TODO: Remove this sandbox when it is no longer in use.
-//     use super::*;
-//     #[test]
-//     fn sandbox() {
-//         let rot = Rotation::new(Direction::NegX, 3);
-//         let mat = rot.to_matrix();
-//         let trans = mat.transform_point3(glam::Vec3::NEG_Z);
-//         println!("{trans:?}");
-//         println!("{}", rot.source_face(Direction::NegZ));
-//     }
-// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RotationIterator {

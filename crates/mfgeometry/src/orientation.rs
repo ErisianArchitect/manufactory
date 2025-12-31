@@ -6,6 +6,7 @@ use crate::{
     pack_flip_and_rotation,
     wrap_angle,
 };
+use paste::paste;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeconstructedOrientation {
@@ -33,6 +34,8 @@ impl DeconstructedOrientation {
     }
 }
 
+// TODO: Switch to using an enum internally to take advantage
+// ::::: of niche optimization.
 // Field     : Bit Range
 // Flip      : 0..3
 //      X    : 0
@@ -44,6 +47,55 @@ impl DeconstructedOrientation {
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Orientation(pub(crate) u8);
+
+macro_rules! map_coord_impls {
+    ($(
+        $type:ty
+    ),*$(,)?) => {
+        $(
+            paste!{
+                /// This method can tell you where on the target face a source UV is.
+                /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
+                /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
+                /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
+                /// to get your final coord.
+                #[inline]
+                pub const fn [<map_face_coord_ $type>](self, face: Direction, uv: ($type, $type)) -> ($type, $type) {
+                    let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
+                    let coordmap = orient_table::MAP_COORD_TABLE.array[table_index];
+                    coordmap.[<map_ $type>](uv)
+                }
+                
+                /// This method can tell you where on the source face a target UV is.
+                /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
+                /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
+                /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
+                /// to get your final coord.
+                #[inline]
+                pub const fn [<source_face_coord_ $type>](self, face: Direction, uv: ($type, $type)) -> ($type, $type) {
+                    let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
+                    let coordmap = orient_table::SOURCE_FACE_COORD_TABLE.array[table_index];
+                    coordmap.[<map_ $type>](uv)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! transform_impls {
+    ($(
+        $type:ty
+    )*$(,)?) => {
+        $(
+            paste!{
+                pub const fn [<transform_ $type>](self, point: ($type, $type, $type)) -> ($type, $type, $type) {
+                    let rotated = self.rotation().[<rotate_coord_ $type>](point);
+                    self.flip().[<flip_coord_ $type>](rotated)
+                }
+            }
+        )*
+    };
+}
 
 impl Orientation {
     pub(crate) const TOTAL_ORIENTATION_COUNT: u8 = /* Flip */ 8 * /* Angle */ 4 * /* Up */ 6;
@@ -137,17 +189,17 @@ impl Orientation {
         Self::CORNER_ORIENTATIONS_MATRIX[y][z][x][angle]
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn new(rotation: Rotation, flip: Flip) -> Self {
         Self(pack_flip_and_rotation(flip, rotation))
     }
     
-    #[inline]
+    #[inline(always)]
     pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
         Self(value)
     }
     
-    #[inline]
+    #[inline(always)]
     pub const fn from_u8(value: u8) -> Option<Self> {
         if value > Self::MAX.0 {
             return None;
@@ -205,17 +257,17 @@ impl Orientation {
         ]
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn flip(self) -> Flip {
         Flip(self.0 & 0b111)
     }
     
-    #[inline]
+    #[inline(always)]
     pub const fn flipped(self, flip: Flip) -> Self {
         Self(self.0 ^ flip.0)
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn rotation(self) -> Rotation {
         Rotation(self.0 >> 3)
     }
@@ -295,6 +347,7 @@ impl Orientation {
         RotationFirstOrientationIterator::START
     }
 
+    // verified (2025-12-30)
     /// `reface` can be used to determine where a face will end up after orientation.
     /// First rotates and then flips the face.
     #[inline]
@@ -303,6 +356,7 @@ impl Orientation {
         rotated.flip(self.flip())
     }
 
+    // verified (2025-12-30)
     /// This determines which face was oriented to `face`.
     #[inline]
     pub const fn source_face(self, face: Direction) -> Direction {
@@ -310,42 +364,49 @@ impl Orientation {
         self.rotation().source_face(flipped)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::PosY] is pointing towards.
     #[inline]
     pub const fn up(self) -> Direction {
         self.reface(Direction::PosY)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::NegY] is pointing towards.
     #[inline]
     pub const fn down(self) -> Direction {
         self.reface(Direction::NegY)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::NegZ] is pointing towards.
     #[inline]
     pub const fn forward(self) -> Direction {
         self.reface(Direction::NegZ)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::PosZ] is pointing towards.
     #[inline]
     pub const fn backward(self) -> Direction {
         self.reface(Direction::PosZ)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::NegX] is pointing towards.
     #[inline]
     pub const fn left(self) -> Direction {
         self.reface(Direction::NegX)
     }
 
+    // verified (2025-12-30)
     /// Gets the direction that [Direction::PosX] is pointing towards.
     #[inline]
     pub const fn right(self) -> Direction {
         self.reface(Direction::PosX)
     }
 
+    // verified (2025-12-30)
     /// If you're using this method to transform mesh vertices, make sure that you 
     /// reverse your indices if the face will be flipped (for backface culling). To
     /// determine if your indices need to be inverted, simply XOR each axis of the [Orientation]'s [Flip].
@@ -356,29 +417,39 @@ impl Orientation {
         self.flip().flip_coord(rotated)
     }
 
-    /// This method can tell you where on the target face a source UV is.
-    /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
-    /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
-    /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
-    /// to get your final coord.
-    #[inline]
-    pub fn map_face_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)> + From<(T, T)>>(self, face: Direction, uv: C) -> C {
-        let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
-        let coordmap = orient_table::MAP_COORD_TABLE[table_index];
-        coordmap.map(uv)
-    }
+    // /// This method can tell you where on the target face a source UV is.
+    // /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
+    // /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
+    // /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
+    // /// to get your final coord.
+    // #[inline]
+    // pub fn map_face_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)> + From<(T, T)>>(self, face: Direction, uv: C) -> C {
+    //     let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
+    //     let coordmap = orient_table::MAP_COORD_TABLE[table_index];
+    //     coordmap.map(uv)
+    // }
 
-    /// This method can tell you where on the source face a target UV is.
-    /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
-    /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
-    /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
-    /// to get your final coord.
-    #[inline]
-    pub fn source_face_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)> + From<(T, T)>>(self, face: Direction, uv: C) -> C {
-        let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
-        let coordmap = orient_table::SOURCE_FACE_COORD_TABLE[table_index];
-        coordmap.map(uv)
-    }
+    // /// This method can tell you where on the source face a target UV is.
+    // /// To get the most benefit out of this, it is advised that you center your coords around (0, 0).
+    // /// So if you're trying to map a coord within a rect of size (16, 16), you would subtract 8 from the
+    // /// x and y of the coord, then pass that offset coord to this function, then add 8 back to the x and y
+    // /// to get your final coord.
+    // #[inline]
+    // pub fn source_face_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)> + From<(T, T)>>(self, face: Direction, uv: C) -> C {
+    //     let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
+    //     let coordmap = orient_table::SOURCE_FACE_COORD_TABLE[table_index];
+    //     coordmap.map(uv)
+    // }
+    
+    map_coord_impls!(
+        i8,
+        i16,
+        i32,
+        i64,
+        i128,
+        f32,
+        f64,
+    );
 
     /// Apply an orientation to an orientation.
     pub const fn reorient(self, orientation: Orientation) -> Self {

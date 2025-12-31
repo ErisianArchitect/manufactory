@@ -1,53 +1,217 @@
-use crate::{direction::Direction, flip::Flip, rotation::Rotation};
+use crate::{CacheAlignedArray, direction::Direction, flip::Flip, rotation::Rotation};
+use paste::paste;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AxisMap {
+pub(crate) enum AxisMap {
     PosX,
     PosY,
     NegX,
     NegY,
 }
 
-impl AxisMap {
-    pub fn map<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)>>(self, coord: C) -> T {
-        let (x, y): (T, T) = coord.into();
-        match self {
-            AxisMap::PosX => x,
-            AxisMap::PosY => y,
-            AxisMap::NegX => -x,
-            AxisMap::NegY => -y,
-        }
-    }
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum AxisMapper {
+    PosXPosY,
+    NegXPosY,
+    PosXNegY,
+    NegXNegY,
+    PosYPosX,
+    NegYPosX,
+    PosYNegX,
+    NegYNegX,
 }
 
+// macro_rules! axes_map_impl {
+//     ($(
+//         $type:ty
+//     ),*$(,)?) => {
+//         $(
+//             paste!{
+//                 // This code is used in the generation of the table.
+//                 // It's a bit redundant, but I don't feel like regenerating the table.
+//                 #[allow(unused)]
+//                 #[inline]
+//                 pub const fn [<map_ $type>](self, (x, y): ($type, $type)) -> ($type, $type) {
+//                     match self {
+//                         Self::PosXPosY => (x, y),
+//                         Self::NegXPosY => (-x, y),
+//                         Self::PosXNegY => (x, -y),
+//                         Self::NegXNegY => (-x, -y),
+//                         Self::PosYPosX => (y, x),
+//                         Self::NegYPosX => (-y, x),
+//                         Self::PosYNegX => (y, -x),
+//                         Self::NegYNegX => (-y, -x),
+//                     }
+//                 }
+//             }
+//         )*
+//     };
+// }
+
+impl AxisMapper {
+    pub(crate) const fn from_pair(x: AxisMap, y: AxisMap) -> Self {
+        use AxisMap::*;
+        match (x, y) {
+            (NegX, PosY) => Self::NegXPosY,
+            (PosX, PosY) => Self::PosXPosY,
+            (PosX, NegY) => Self::PosXNegY,
+            (NegX, NegY) => Self::NegXNegY,
+            (PosY, PosX) => Self::PosYPosX,
+            (NegY, PosX) => Self::NegYPosX,
+            (PosY, NegX) => Self::PosYNegX,
+            (NegY, NegX) => Self::NegYNegX,
+            _ => panic!("Invalid pairing."),
+        }
+    }
+    
+    // This code is used in the generation of the table.
+    // It's a bit redundant, but I don't feel like regenerating the table.
+    #[allow(unused)]
+    pub const fn x(self) -> AxisMap {
+        match self {
+            AxisMapper::PosXPosY => AxisMap::PosX,
+            AxisMapper::NegXPosY => AxisMap::NegX,
+            AxisMapper::PosXNegY => AxisMap::PosX,
+            AxisMapper::NegXNegY => AxisMap::NegX,
+            AxisMapper::PosYPosX => AxisMap::PosY,
+            AxisMapper::NegYPosX => AxisMap::NegY,
+            AxisMapper::PosYNegX => AxisMap::PosY,
+            AxisMapper::NegYNegX => AxisMap::NegY,
+        }
+    }
+    
+    // This code is used in the generation of the table.
+    // It's a bit redundant, but I don't feel like regenerating the table.
+    #[allow(unused)]
+    pub const fn y(self) -> AxisMap {
+        match self {
+            AxisMapper::PosXPosY => AxisMap::PosY,
+            AxisMapper::NegXPosY => AxisMap::PosY,
+            AxisMapper::PosXNegY => AxisMap::NegY,
+            AxisMapper::NegXNegY => AxisMap::NegY,
+            AxisMapper::PosYPosX => AxisMap::PosX,
+            AxisMapper::NegYPosX => AxisMap::PosX,
+            AxisMapper::PosYNegX => AxisMap::NegX,
+            AxisMapper::NegYNegX => AxisMap::NegX,
+        }
+    }
+    
+    // This code is used in the generation of the table.
+    // It's a bit redundant, but I don't feel like regenerating the table.
+    #[allow(unused)]
+    pub const fn to_pair(self) -> (AxisMap, AxisMap) {
+        match self {
+            AxisMapper::PosXPosY => (AxisMap::PosX, AxisMap::PosY),
+            AxisMapper::NegXPosY => (AxisMap::NegX, AxisMap::PosY),
+            AxisMapper::PosXNegY => (AxisMap::PosX, AxisMap::NegY),
+            AxisMapper::NegXNegY => (AxisMap::NegX, AxisMap::NegY),
+            AxisMapper::PosYPosX => (AxisMap::PosY, AxisMap::PosX),
+            AxisMapper::NegYPosX => (AxisMap::NegY, AxisMap::PosX),
+            AxisMapper::PosYNegX => (AxisMap::PosY, AxisMap::NegX),
+            AxisMapper::NegYNegX => (AxisMap::NegY, AxisMap::NegX),
+        }
+    }
+    
+    // axes_map_impl!(
+    //     i8,
+    //     i16,
+    //     i32,
+    //     i64,
+    //     i128,
+    //     f32,
+    //     f64,
+    // );
+}
+
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CoordMap {
-    pub x: AxisMap,
-    pub y: AxisMap,
+pub(crate) struct CoordMap {
+    pub mapper: AxisMapper,
+}
+
+macro_rules! coord_map_impl {
+    ($(
+        $type:ty
+    ),*$(,)?) => {
+        $(
+            paste!{
+                #[inline]
+                pub const fn [<map_ $type>](self, (x, y): ($type, $type)) -> ($type, $type) {
+                    match self.mapper {
+                        AxisMapper::PosXPosY => (x, y),
+                        AxisMapper::NegXPosY => (-x, y),
+                        AxisMapper::PosXNegY => (x, -y),
+                        AxisMapper::NegXNegY => (-x, -y),
+                        AxisMapper::PosYPosX => (y, x),
+                        AxisMapper::NegYPosX => (-y, x),
+                        AxisMapper::PosYNegX => (y, -x),
+                        AxisMapper::NegYNegX => (-y, -x),
+                    }
+                }
+            }
+        )*
+    };
 }
 
 impl CoordMap {
-    pub const fn new(x: AxisMap, y: AxisMap) -> Self {
-        Self {x, y}
+    pub(crate) const fn new(x: AxisMap, y: AxisMap) -> Self {
+        Self { mapper: AxisMapper::from_pair(x, y) }
     }
-    pub fn map<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T)> + From<(T, T)>>(self, coord: C) -> C {
-        let coord: (T, T) = coord.into();
-        let coord = (self.x.map(coord), self.y.map(coord));
-        C::from(coord)
+    
+    #[allow(unused)]
+    pub const fn x(self) -> AxisMap {
+        match self.mapper {
+            AxisMapper::PosXPosY => AxisMap::PosX,
+            AxisMapper::NegXPosY => AxisMap::NegX,
+            AxisMapper::PosXNegY => AxisMap::PosX,
+            AxisMapper::NegXNegY => AxisMap::NegX,
+            AxisMapper::PosYPosX => AxisMap::PosY,
+            AxisMapper::NegYPosX => AxisMap::NegY,
+            AxisMapper::PosYNegX => AxisMap::PosY,
+            AxisMapper::NegYNegX => AxisMap::NegY,
+        }
     }
+    
+    #[allow(unused)]
+    pub const fn y(self) -> AxisMap {
+        match self.mapper {
+            AxisMapper::PosXPosY => AxisMap::PosY,
+            AxisMapper::NegXPosY => AxisMap::PosY,
+            AxisMapper::PosXNegY => AxisMap::NegY,
+            AxisMapper::NegXNegY => AxisMap::NegY,
+            AxisMapper::PosYPosX => AxisMap::PosX,
+            AxisMapper::NegYPosX => AxisMap::PosX,
+            AxisMapper::PosYNegX => AxisMap::NegX,
+            AxisMapper::NegYNegX => AxisMap::NegX,
+        }
+    }
+    
+    coord_map_impl!(
+        i8,
+        i16,
+        i32,
+        i64,
+        i128,
+        f32,
+        f64,
+    );
 }
 
-pub fn table_index(rotation: Rotation, flip: Flip, face: Direction) -> usize {
+#[inline(always)]
+pub(crate) const fn table_index(rotation: Rotation, flip: Flip, face: Direction) -> usize {
     let flip = flip.0 as usize;
     let rot = rotation.0 as usize;
     let face = face as usize;
     flip * 144 + rot * 6 + face
 }
 
-// FIXME: The tables need to be regenerated. The code to do that is in `unvoga`.
+// These tables have been verified as of (2025-12-30).
+// They work just fine with the right-handed coordinate system
+// with ccw rotations.
 // Do not touch this table! It was hard to generate.
-pub const MAP_COORD_TABLE: [CoordMap; 1152] = [
+pub(crate) const MAP_COORD_TABLE: CacheAlignedArray<CoordMap, 1152> = CacheAlignedArray::new([
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
@@ -1200,9 +1364,9 @@ pub const MAP_COORD_TABLE: [CoordMap; 1152] = [
     CoordMap::new(AxisMap::NegX, AxisMap::PosY),
     CoordMap::new(AxisMap::NegY, AxisMap::NegX),
     CoordMap::new(AxisMap::NegY, AxisMap::NegX),
-];
+]);
 
-pub const SOURCE_FACE_COORD_TABLE: [CoordMap; 1152] = [
+pub(crate) const SOURCE_FACE_COORD_TABLE: CacheAlignedArray<CoordMap, 1152> = CacheAlignedArray::new([
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
     CoordMap::new(AxisMap::PosX, AxisMap::PosY),
@@ -2355,5 +2519,4 @@ pub const SOURCE_FACE_COORD_TABLE: [CoordMap; 1152] = [
     CoordMap::new(AxisMap::NegX, AxisMap::PosY),
     CoordMap::new(AxisMap::NegY, AxisMap::NegX),
     CoordMap::new(AxisMap::NegY, AxisMap::NegX),
-    
-];
+]);

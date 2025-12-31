@@ -64,17 +64,45 @@ macro_rules! flip_axes {
     };
 }
 
+type Tup3<T> = (T, T, T);
+
+macro_rules! flip_coord_impls {
+    ($(
+        $type:ty
+    ),*$(,)?) => {
+        $(
+            paste!{
+                pub const fn [<flip_coord_ $type>](self, coord: Tup3<$type>) -> Tup3<$type> {
+                    let (x, y, z) = coord;
+                    match self {
+                        Self::NONE => (x, y, z),
+                        Self::X => (-x, y, z),
+                        Self::Y => (x, -y, z),
+                        Self::XY => (-x, -y, z),
+                        Self::Z => (x, y, -z),
+                        Self::XZ => (-x, y, -z),
+                        Self::YZ => (x, -y, -z),
+                        Self::XYZ => (-x, -y, -z),
+                        // SAFETY: Any other state is inconstructible.
+                        _ => unsafe { ::core::hint::unreachable_unchecked() },
+                    }
+                }
+            }
+        )*
+    };
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlipState {
-    None = 0,
-    X = 1,
-    Y = 2,
-    Z = 4,
-    XY = 3,
-    XZ = 5,
-    YZ = 6,
-    XYZ = 7,
+    None = 0b000,
+    X = 0b001,
+    Y = 0b010,
+    Z = 0b100,
+    XY = 0b011,
+    XZ = 0b101,
+    YZ = 0b110,
+    XYZ = 0b111,
 }
 
 impl FlipState {
@@ -125,6 +153,8 @@ impl Flip {
         Self((x as u8) | ((y as u8) << 1) | ((z as u8) << 2))
     }
     
+    /// `bits` must be no greater than `0b111` (7).
+    /// If a higher value is passed in, the behavior is undefined.
     #[inline]
     pub const unsafe fn from_u8_unchecked(bits: u8) -> Self {
         Self(bits)
@@ -172,6 +202,16 @@ impl Flip {
         }
         C::from((x, y, z))
     }
+    
+    flip_coord_impls!(
+        i8,
+        i16,
+        i32,
+        i64,
+        i128,
+        f32,
+        f64,
+    );
 
     // I don't know how useful this would be, but the code is already written.
     /// Determines if a face is on an axis that is flipped.

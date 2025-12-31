@@ -8,7 +8,7 @@ use crate::{
 };
 
 // NOTE: This API could be made to be universal if I switch NegAxis/PosAxis for named directions such as Up/Down.
-//       Then consts could be made for various coordinate systems.
+// ::::: Then consts could be made for various coordinate systems.
 // The ids are out of order so that they can have a certain order for orientations.
 // If you change the discriminants, then some code might break.
 // The purpose of this order is so that the bit representation of certain rotations

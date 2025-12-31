@@ -6,6 +6,13 @@
 ||these tables was fairly complicated.                                                ||
 \*====================================================================================*/
 
+/*
+Goals:
+- Switch from using u8 to using specialized enums for niche optimization.
+Changelog:
+[Nothing here yet]
+*/
+
 pub mod axis;
 pub mod cardinal;
 pub mod direction;
@@ -32,12 +39,12 @@ pub use rotation::Rotation;
 // Rotation: 3..8 (5 bits)
 //      angle: 3..5 (2 bits)
 //      up   : 5..8 (3 bits)
-#[inline]
+#[inline(always)]
 pub const fn pack_flip_and_rotation(flip: Flip, rotation: Rotation) -> u8 {
     flip.0 | (rotation.0 << 3)
 }
 
-#[inline]
+#[inline(always)]
 pub const fn unpack_flip_and_rotation(packed: u8) -> (Flip, Rotation) {
     let flip = packed & 0b111;
     let rotation = (packed >> 3) % 24;
@@ -45,14 +52,70 @@ pub const fn unpack_flip_and_rotation(packed: u8) -> (Flip, Rotation) {
 }
 
 // verified (2025-12-28)
-#[inline]
+/// Wrap a cube face angle within a safe range (0..4).
+/// For cube orientations, faces can have 4 angles (up = up, up = left, up = down, up = right).
+#[inline(always)]
 pub const fn wrap_angle(angle: i32) -> i32 {
     angle & Rotation::ANGLE_MASK_I32
+}
+
+// This should be cache aligned on the majority of systems.
+/// A simple array wrapper that aligns the array to 64 bytes, which
+/// is the most typical cache line size on modern (circa 2026) hardware.
+#[repr(C, align(64))]
+pub struct CacheAlignedArray<T: 'static + Sized, const LEN: usize> {
+    pub array: [T; LEN],
+}
+
+impl<T, const LEN: usize> CacheAlignedArray<T, LEN> {
+    #[must_use]
+    #[inline(always)]
+    pub const fn new(array: [T; LEN]) -> Self {
+        Self { array }
+    }
+}
+
+impl<T, const LEN: usize> ::core::ops::Deref for CacheAlignedArray<T, LEN> {
+    type Target = [T];
+    
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.array
+    }
+}
+
+impl<T, const LEN: usize> ::core::ops::DerefMut for CacheAlignedArray<T, LEN> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.array
+    }
+}
+
+impl<T, const LEN: usize, I: ::core::slice::SliceIndex<[T], Output = T>> ::core::ops::Index<I> for CacheAlignedArray<T, LEN> {
+    type Output = T;
+    #[inline(always)]
+    fn index(&self, index: I) -> &Self::Output {
+        &self.array[index]
+    }
+}
+
+impl<T, const LEN: usize, I: ::core::slice::SliceIndex<[T], Output = T>> ::core::ops::IndexMut<I> for CacheAlignedArray<T, LEN> {
+    #[inline(always)]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.array[index]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    
+    #[test]
+    #[ignore]
+    fn quick_testing_sandbox() {
+        // This is a little scratchpad space to test snippets of code.
+        // Make sure to delete code after you are done testing.
+    }
     
     #[test]
     fn orientation_test() {
@@ -131,12 +194,26 @@ mod tests {
     }
     
     #[test]
-    fn face_angle_test() {
-        todo!()
+    fn transform_coord_test() {
+        for flip in 0..8 {
+            let flip = Flip(flip);
+            for angle in 0..4 {
+                for up in Direction::iter() {
+                    let orientation = Orientation::new(Rotation::new(up, angle), flip);
+                    for face in Direction::iter() {
+                        let reface = orientation.reface(face);
+                        let face_coord = face.to_ituple();
+                        let reface_coord = reface.to_ituple();
+                        let trans_face_coord = orientation.transform(face_coord);
+                        assert_eq!(reface_coord, trans_face_coord, "{orientation} -> {face}");
+                    }
+                }
+            }
+        }
     }
     
-    
     use crate::orient_table::*;
+    // unverified
     // I used this to generate the table in maptable.rs and I don't need it anymore, but I'm going
     // to keep it around just in case.
     fn map_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
@@ -177,12 +254,10 @@ mod tests {
         } else {
             AxisMap::NegX
         };
-        CoordMap {
-            x: x_map,
-            y: y_map
-        }
+        CoordMap::new(x_map, y_map)
     }
-
+    
+    // unverified
     fn source_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
         // First I will attempt a naive implementation, then I will use the naive implementation to generate code
         // for a more optimized implementation.
@@ -217,13 +292,11 @@ mod tests {
         } else {
             AxisMap::PosX
         };
-        CoordMap {
-            x: x_map,
-            y: y_map
-        }
+        CoordMap::new(x_map, y_map)
     }
     
-        #[test]
+    // unverified
+    #[test]
     fn map_coord_gencode() {
         let output = {
             use std::fmt::Write;
@@ -234,7 +307,8 @@ mod tests {
                     Direction::iter_discriminant_order().for_each(|face| {
                         count += 1;
                         let map = map_face_coord_naive(Orientation::new(Rotation(roti as u8), Flip(flipi as u8)), face);
-                        writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", map.x, map.y).unwrap();
+                        let (x_map, y_map) = map.mapper.to_pair();
+                        writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
                     });
                 }
             }
@@ -242,10 +316,12 @@ mod tests {
         };
         use std::io::{Write, BufWriter};
         use std::fs::File;
-        let mut writer = BufWriter::new(File::create("ignore/map_coord_table.rs").expect("Failed to open file"));
+        let mut writer = BufWriter::new(File::create("./ignore/map_coord_table.rs").expect("Failed to open file"));
         writer.write_all(output.as_bytes()).expect("Failed to write file.");
         println!("Wrote the output to file at ./ignore/map_coord_table.rs");
     }
+    
+    // unverified
     #[test]
     fn source_coord_gencode() {
         let output = {
@@ -257,7 +333,8 @@ mod tests {
                     Direction::iter_discriminant_order().for_each(|face| {
                         count += 1;
                         let map = source_face_coord_naive(Orientation::new(Rotation(roti as u8), Flip(flipi as u8)), face);
-                        writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", map.x, map.y);
+                        let (x_map, y_map) = map.mapper.to_pair();
+                        writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
                     });
                 }
             }
@@ -266,7 +343,7 @@ mod tests {
         use std::io::{Write, BufWriter};
         use std::fs::File;
         let mut writer = BufWriter::new(File::create("ignore/source_face_coord_table.rs").expect("Failed to open file"));
-        writer.write_all(output.as_bytes());
+        writer.write_all(output.as_bytes()).unwrap();
         println!("Wrote the output to file at ./ignore/source_face_coord_table.rs");
     }
 }
