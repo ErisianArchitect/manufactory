@@ -33,6 +33,66 @@ pub const fn wrap_rotation_u8(rotation: u8) -> u8 {
     CACHED_WRAP_U8_ARRAY.0[rotation as usize]
 }
 
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Rot {
+    #[default]
+    PosY0 = 0,
+    PosX0 = 1,
+    PosZ0 = 2,
+    NegY0 = 3,
+    NegX0 = 4,
+    NegZ0 = 5,
+    PosY1 = 6,
+    PosX1 = 7,
+    PosZ1 = 8,
+    NegY1 = 9,
+    NegX1 = 10,
+    NegZ1 = 11,
+    PosY2 = 12,
+    PosX2 = 13,
+    PosZ2 = 14,
+    NegY2 = 15,
+    NegX2 = 16,
+    NegZ2 = 17,
+    PosY3 = 18,
+    PosX3 = 19,
+    PosZ3 = 20,
+    NegY3 = 21,
+    NegX3 = 22,
+    NegZ3 = 23,
+}
+
+impl Rot {
+    #[inline(always)]
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+    
+    /// `value` is expected to be in the range `0..24`.
+    #[inline(always)]
+    pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
+        unsafe { ::core::mem::transmute(value) }
+    }
+    
+    #[inline(always)]
+    pub const unsafe fn from_u8(value: u8) -> Option<Self> {
+        if value >= 24 {
+            return None;
+        }
+        Some(unsafe { Self::from_u8_unchecked(value) })
+    }
+    
+    /// `value % 24`
+    #[inline(always)]
+    pub const fn from_u8_wrapping(value: u8) -> Self {
+        let wrapped = value % 24;
+        unsafe { Self::from_u8_unchecked(wrapped) }
+    }
+    
+    
+}
+
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rotation(pub(crate) u8);
@@ -113,7 +173,7 @@ impl Rotation {
     
     #[inline]
     pub const fn new(up: Direction, angle: i32) -> Self {
-        let up = up as u8;
+        let up = up.rotation_discriminant();
         let angle = wrap_angle(angle) as u8;
         Self(angle | (up << Self::UP_SHIFT))
     }
@@ -271,9 +331,9 @@ impl Rotation {
     #[inline]
     #[must_use]
     pub const fn cycle(self, offset: i32) -> Rotation {
-        let index = self.0 as i32;
+        let index = self.0 as i64;
         // Don't use wrapping_add here, as tempting as it seems. It would be incorrect because 2**32 is not a multiple of 24.
-        let new_index = (index as i64 + offset as i64).rem_euclid(24) as u8;
+        let new_index = (index + offset as i64).rem_euclid(24) as u8;
         Rotation(new_index)
     }
 
@@ -457,7 +517,7 @@ impl Rotation {
         }        
     }
 
-    // unverified (2025-12-28)
+    // verified (2025-12-30)
     /// Rotates `coord`.
     pub fn rotate_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T, T)> + From<(T, T, T)>>(self, coord: C) -> C {
         let (x, y, z): (T, T, T) = coord.into();
@@ -493,7 +553,7 @@ impl Rotation {
             00 /* (0, PosY) */ => (x, y, z), // Default rotation, no change.
             01 /* (1, PosY) */ => (z, y, -x),
             02 /* (2, PosY) */ => (-x, y, -z),
-            03 /* (3, PosY) */ => (-z, y, x), // I think this might be correct, needs further verification (2025-12-29)
+            03 /* (3, PosY) */ => (-z, y, x),
             04 /* (0, PosX) */ => (y, -z, -x),
             05 /* (1, PosX) */ => (y, x, -z),
             06 /* (2, PosX) */ => (y, z, x),
@@ -543,6 +603,7 @@ impl Rotation {
         // By combining the angle, up, and destination into a single index,
         // this could become an O(1) lookup into a table.
         use Direction::*;
+        let index = self.0 as u8;
         match ((self.angle(), self.up()), destination) {
             ((0, PosY), PosY) => PosY,
             ((0, PosY), PosX) => PosX,

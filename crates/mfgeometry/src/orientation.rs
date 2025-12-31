@@ -122,7 +122,8 @@ impl Orientation {
         let mut rotation = 0u8;
         let mut index = 0;
         loop {
-            let orient = Orientation::new(Rotation(rotation), Flip(flip));
+            let orient_bits = flip | (rotation << 3);
+            let orient = Orientation(orient_bits);
             order[index] = orient;
             index += 1;
             if rotation == 23 {
@@ -259,12 +260,12 @@ impl Orientation {
 
     #[inline(always)]
     pub const fn flip(self) -> Flip {
-        Flip(self.0 & 0b111)
+        Flip::from_u8_wrapping(self.0)
     }
     
     #[inline(always)]
     pub const fn flipped(self, flip: Flip) -> Self {
-        Self(self.0 ^ flip.0)
+        Self(self.0 ^ flip.0 as u8)
     }
 
     #[inline(always)]
@@ -274,7 +275,7 @@ impl Orientation {
 
     #[inline]
     pub const fn set_flip(&mut self, flip: Flip) {
-        self.0 = (self.0 & 0b11111000) | flip.0
+        self.0 = (self.0 & 0b11111000) | flip.0 as u8
     }
     
     #[inline]
@@ -675,7 +676,7 @@ impl RotationFirstOrientationIterator {
     #[inline]
     pub const fn start_at(orientation: Orientation) -> Self {
         Self {
-            flip: orientation.flip().0,
+            flip: orientation.flip().0 as u8,
             rotation: orientation.rotation().0,
         }
     }
@@ -686,7 +687,7 @@ impl RotationFirstOrientationIterator {
         if self.flip == 8 {
             return None;
         }
-        Some(Orientation::new(Rotation(self.rotation), Flip(self.flip)))
+        Some(Orientation::new(Rotation(self.rotation), unsafe { Flip::from_u8_unchecked(self.flip) }))
     }
 }
 
@@ -703,7 +704,7 @@ impl Iterator for RotationFirstOrientationIterator {
         if self.flip == 8 {
             return None;
         }
-        let result = Some(Orientation::new(Rotation(self.rotation), Flip(self.flip)));
+        let result = Some(Orientation::new(Rotation(self.rotation), unsafe { Flip::from_u8_unchecked(self.flip) }));
         self.rotation += 1;
         if self.rotation == 24 {
             self.flip += 1;

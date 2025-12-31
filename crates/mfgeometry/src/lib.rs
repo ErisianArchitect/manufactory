@@ -41,14 +41,13 @@ pub use rotation::Rotation;
 //      up   : 5..8 (3 bits)
 #[inline(always)]
 pub const fn pack_flip_and_rotation(flip: Flip, rotation: Rotation) -> u8 {
-    flip.0 | (rotation.0 << 3)
+    flip.0 as u8 | (rotation.0 << 3)
 }
 
 #[inline(always)]
 pub const fn unpack_flip_and_rotation(packed: u8) -> (Flip, Rotation) {
-    let flip = packed & 0b111;
     let rotation = (packed >> 3) % 24;
-    (Flip(flip), Rotation(rotation))
+    (Flip(flip::FlipState::from_u8_wrapping(packed)), Rotation(rotation))
 }
 
 // verified (2025-12-28)
@@ -113,8 +112,10 @@ mod tests {
     #[test]
     #[ignore]
     fn quick_testing_sandbox() {
-        // This is a little scratchpad space to test snippets of code.
-        // Make sure to delete code after you are done testing.
+        /*============================================================*\
+        ||This is a little scratchpad space to test snippets of code. ||
+        ||Make sure to delete code after you are done testing.        ||
+        \*============================================================*/
     }
     
     #[test]
@@ -196,7 +197,7 @@ mod tests {
     #[test]
     fn transform_coord_test() {
         for flip in 0..8 {
-            let flip = Flip(flip);
+            let flip = Flip(unsafe { flip::FlipState::from_u8_unchecked(flip) });
             for angle in 0..4 {
                 for up in Direction::iter() {
                     let orientation = Orientation::new(Rotation::new(up, angle), flip);
@@ -306,7 +307,7 @@ mod tests {
                 for roti in 0..24 { // rotation
                     Direction::iter_discriminant_order().for_each(|face| {
                         count += 1;
-                        let map = map_face_coord_naive(Orientation::new(Rotation(roti as u8), Flip(flipi as u8)), face);
+                        let map = map_face_coord_naive(Orientation::new(Rotation(roti as u8), unsafe { Flip::from_u8_unchecked(flipi as u8) }), face);
                         let (x_map, y_map) = map.mapper.to_pair();
                         writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
                     });
@@ -332,7 +333,7 @@ mod tests {
                 for roti in 0..24 { // rotation
                     Direction::iter_discriminant_order().for_each(|face| {
                         count += 1;
-                        let map = source_face_coord_naive(Orientation::new(Rotation(roti as u8), Flip(flipi as u8)), face);
+                        let map = source_face_coord_naive(Orientation::new(Rotation(roti as u8), unsafe { Flip::from_u8_unchecked(flipi as u8) }), face);
                         let (x_map, y_map) = map.mapper.to_pair();
                         writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
                     });

@@ -3,23 +3,149 @@ use paste::paste;
 
 use crate::{direction::Direction};
 
+
+
+#[repr(u8)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Flip(pub(crate) u8);
+pub enum FlipState {
+    #[default]
+    None = 0b000,
+    X = 0b001,
+    Y = 0b010,
+    Z = 0b100,
+    XY = 0b011,
+    XZ = 0b101,
+    YZ = 0b110,
+    XYZ = 0b111,
+}
+
+macro_rules! convert_ops {
+    ($(
+        $func_name:ident($op:tt)
+    )*) => {
+        $(
+            #[inline(always)]
+            pub const fn $func_name(self, rhs: Self) -> Self {
+                unsafe {
+                    let lhs = self as u8;
+                    let rhs = rhs as u8;
+                    let result = lhs $op rhs;
+                    ::core::mem::transmute(result)
+                }
+            }
+            paste!{
+                #[inline(always)]
+                pub const fn [<$func_name _assign>](&mut self, rhs: Self) {
+                    *self = self.$func_name(rhs);
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! flipstate_getters_setters {
+    ($name:ident()) => {
+        
+    };
+}
+
+impl FlipState {
+    
+    // #[inline(always)]
+    // pub const fn as_u8(self) -> u8 {
+    //     self as u8
+    // }
+    
+    #[inline(always)]
+    pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
+        debug_assert!(value < 8, "Value is out of range.");
+        unsafe {
+            ::core::mem::transmute(value)
+        }
+    }
+    
+    #[inline(always)]
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        if value >= 8 {
+            return None;
+        }
+        Some(unsafe { Self::from_u8_unchecked(value) })
+    }
+    
+    #[inline(always)]
+    pub const fn from_u8_wrapping(value: u8) -> Self {
+        unsafe { Self::from_u8_unchecked(value & 0b111) }
+    }
+    
+    convert_ops!(
+        and(&)
+        or(|)
+        xor(^)
+    );
+    
+    #[inline(always)]
+    pub const fn eq(self, rhs: Self) -> bool {
+        self as u8 == rhs as u8
+    }
+    
+    #[inline(always)]
+    pub const fn ne(self, rhs: Self) -> bool {
+        self as u8 != rhs as u8
+    }
+    
+    #[inline(always)]
+    pub const fn inverted(self) -> Self {
+        let lhs = self as u8;
+        let result = lhs ^ 0b111;
+        unsafe { Self::from_u8_unchecked(result) }
+    }
+    
+    #[inline(always)]
+    pub const fn x(self) -> bool {
+        self as u8 & 0b001 == 0b001
+    }
+    
+    #[inline(always)]
+    pub const fn y(self) -> bool {
+        self as u8 & 0b010 == 0b010
+    }
+    
+    #[inline(always)]
+    pub const fn z(self) -> bool {
+        self as u8 & 0b100 == 0b100
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Flip(pub(crate) FlipState);
+
+// Ensure that the niche optimization is working.
+const _: () = {
+    // I probably could have kept going, but this should be sufficient.
+    // I think that there should be something like 248 niches, which means that this can nest like, a billion times.
+    assert!(size_of::<Flip>() == size_of::<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Flip>>>>>>>>>>>>>>>>>());
+    enum NicheTest {
+        Foo,
+        Bar,
+        Baz,
+        Niche(Flip),
+    }
+};
 
 macro_rules! flip_axes {
     ($(
-        {const $const_name:ident = $bin:literal; fn $fn_name:ident}
+        {const $const_name:ident = $val:expr; fn $fn_name:ident}
     )*) => {
         $(
             paste!{
                 // pub const X: Self = Self(0b001);
-                pub const $const_name: Self = Self($bin);
+                pub const $const_name: Self = Self($val);
                 // pub const fn x(self) -> bool {
                 //     self.0 & Self::X.0 == Self::X.0
                 // }
                 #[inline]
                 pub const fn $fn_name(self) -> bool {
-                    self.0 & Self::$const_name.0 == Self::$const_name.0
+                    self.0 as u8 & Self::$const_name.0 as u8 == Self::$const_name.0 as u8
                 }
                 
                 // pub const fn set_x(&mut self, value: bool) -> bool {
@@ -35,9 +161,15 @@ macro_rules! flip_axes {
                 pub const fn [<set_ $fn_name>](&mut self, value: bool) -> bool {
                     let old = self.$fn_name();
                     if value {
-                        self.0 |= Self::$const_name.0;
+                        self.0.or_assign(Self::$const_name.0);
                     } else {
-                        self.0 &= const { Self::$const_name.invert().0 };
+                        unsafe {
+                            let self_u8 = self.0 as u8;
+                            let rhs = Self::$const_name.0 as u8;
+                            let new = self_u8 & !rhs;
+                            self.0 = FlipState::from_u8_unchecked(new);
+                        }
+                        self.0.and_assign(const { Self::$const_name.0.inverted() })
                     }
                     old
                 }
@@ -57,7 +189,7 @@ macro_rules! flip_axes {
                 // }
                 #[inline]
                 pub const fn [<flip_ $fn_name>](self) -> Self {
-                    Self(self.0 ^ Self::$const_name.0)
+                    Self(self.0.xor(Self::$const_name.0))
                 }
             }
         )*
@@ -83,8 +215,6 @@ macro_rules! flip_coord_impls {
                         Self::XZ => (-x, y, -z),
                         Self::YZ => (x, -y, -z),
                         Self::XYZ => (-x, -y, -z),
-                        // SAFETY: Any other state is inconstructible.
-                        _ => unsafe { ::core::hint::unreachable_unchecked() },
                     }
                 }
             }
@@ -92,96 +222,57 @@ macro_rules! flip_coord_impls {
     };
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FlipState {
-    None = 0b000,
-    X = 0b001,
-    Y = 0b010,
-    Z = 0b100,
-    XY = 0b011,
-    XZ = 0b101,
-    YZ = 0b110,
-    XYZ = 0b111,
-}
-
-impl FlipState {
-    #[inline]
-    pub const fn to_flip(self) -> Flip {
-        match self {
-            FlipState::None => Flip::NONE,
-            FlipState::X => Flip::X,
-            FlipState::Y => Flip::Y,
-            FlipState::Z => Flip::Z,
-            FlipState::XY => Flip::XY,
-            FlipState::XZ => Flip::XZ,
-            FlipState::YZ => Flip::YZ,
-            FlipState::XYZ => Flip::XYZ,
-        }
-    }
-    
-    pub const fn from_flip(flip: Flip) -> Self {
-        match Flip(flip.0 & Flip::ALL.0) {
-            Flip::NONE => Self::None,
-            Flip::X => Self::X,
-            Flip::Y => Self::Y,
-            Flip::Z => Self::Z,
-            Flip::XY => Self::XY,
-            Flip::XZ => Self::XZ,
-            Flip::YZ => Self::YZ,
-            Flip::XYZ => Self::XYZ,
-            _ => unsafe { std::hint::unreachable_unchecked() },
-        }
-    }
-}
-
 impl Flip {
     flip_axes!(
-        {const X   = 0b001; fn x  } // 1
-        {const XY  = 0b011; fn xy } // 3
-        {const XZ  = 0b101; fn xz } // 5
-        {const Y   = 0b010; fn y  } // 2
-        {const YZ  = 0b110; fn yz } // 6
-        {const Z   = 0b100; fn z  } // 4
-        {const XYZ = 0b111; fn xyz} // 7
+        {const X   = FlipState::X;   fn x  } // 1
+        {const XY  = FlipState::XY;  fn xy } // 3
+        {const XZ  = FlipState::XZ;  fn xz } // 5
+        {const Y   = FlipState::Y;   fn y  } // 2
+        {const YZ  = FlipState::YZ;  fn yz } // 6
+        {const Z   = FlipState::Z;   fn z  } // 4
+        {const XYZ = FlipState::XYZ; fn xyz} // 7
     );
+    pub const NONE: Flip = Flip(FlipState::None);
     pub const ALL: Flip = Flip::XYZ;
-    pub const NONE: Flip = Flip(0b000);
 
     #[inline]
     pub const fn new(x: bool, y: bool, z: bool) -> Self {
-        Self((x as u8) | ((y as u8) << 1) | ((z as u8) << 2))
+        Self(unsafe { FlipState::from_u8_unchecked((x as u8) | ((y as u8) << 1) | ((z as u8) << 2)) })
     }
     
     /// `bits` must be no greater than `0b111` (7).
     /// If a higher value is passed in, the behavior is undefined.
-    #[inline]
+    #[inline(always)]
     pub const unsafe fn from_u8_unchecked(bits: u8) -> Self {
-        Self(bits)
+        Self(unsafe { FlipState::from_u8_unchecked(bits) })
     }
     
-    #[inline]
+    #[inline(always)]
     pub const fn from_u8(bits: u8) -> Option<Self> {
-        if bits > Flip::ALL.0 {
+        if bits >= 8 {
             return None;
         }
-        // SAFETY: Guard clause ensures that u8 is valid
-        Some(unsafe { Self::from_u8_unchecked(bits) })
+        Some(Self(unsafe { FlipState::from_u8_unchecked(bits) }))
+    }
+    
+    #[inline(always)]
+    pub const fn from_u8_wrapping(value: u8) -> Self {
+        Self(FlipState::from_u8_wrapping(value))
     }
     
     #[inline]
-    pub const fn to_u8(self) -> u8 {
-        self.0
+    pub const fn as_u8(self) -> u8 {
+        self.0 as u8
     }
 
     #[inline]
     pub const fn flip(self, flip: Flip) -> Self {
-        Self(self.0 ^ flip.0)
+        Self(self.0.or(flip.0))
     }
     
     #[inline]
     pub const fn invert(self) -> Self {
-        Self(self.0 ^ Self::ALL.0)
+        Self(self.0.xor(Self::ALL.0))
     }
 
     /// Xors all the bits.
@@ -216,7 +307,7 @@ impl Flip {
     // I don't know how useful this would be, but the code is already written.
     /// Determines if a face is on an axis that is flipped.
     pub const fn is_flipped(self, face: Direction) -> bool {
-        if self.0 == 0 {
+        if self.0 as u8 == FlipState::None as u8 {
             return false;
         }
         use Direction::*;
@@ -230,7 +321,7 @@ impl Flip {
     
     #[inline]
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..8).map(Self)
+        (0..8).map(move |val| unsafe { Self::from_u8_unchecked(val) })
     }
 
     // /// If the [Flip] is being used to flip vertices, this method determines if the indices need to be reversed.
@@ -267,7 +358,7 @@ impl std::ops::BitOr<Flip> for Flip {
     
     #[inline]
     fn bitor(self, rhs: Flip) -> Self::Output {
-        Self(self.0 | rhs.0)
+        Self(self.0.or(rhs.0))
     }
 }
 
@@ -283,14 +374,14 @@ impl std::ops::BitAnd<Flip> for Flip {
     
     #[inline]
     fn bitand(self, rhs: Flip) -> Self::Output {
-        Self(self.0 & rhs.0)
+        Self(self.0.and(rhs.0))
     }
 }
 
 impl std::ops::BitAndAssign<Flip> for Flip {
     #[inline]
     fn bitand_assign(&mut self, rhs: Flip) {
-        self.0 &= rhs.0
+        self.0.and_assign(rhs.0)
     }
 }
 
@@ -305,7 +396,7 @@ impl std::ops::Add<Flip> for Flip {
 impl std::ops::AddAssign<Flip> for Flip {
     #[inline]
     fn add_assign(&mut self, rhs: Flip) {
-        self.0 |= rhs.0;
+        self.0.or_assign(rhs.0);
     }
 }
 
@@ -330,7 +421,7 @@ impl std::ops::Not for Flip {
     
     #[inline]
     fn not(self) -> Self::Output {
-        Self(self.0 ^ 0b111)
+        Self(self.0.inverted())
     }
 }
 
