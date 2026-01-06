@@ -24,6 +24,7 @@ pub mod rotation;
 pub use axis::Axis;
 pub use direction::Direction;
 pub use flip::Flip;
+use mfcore::lowlevel::CachePadded;
 pub use orientation::Orientation;
 pub use rotation::Rotation;
 
@@ -41,13 +42,16 @@ pub use rotation::Rotation;
 //      up   : 5..8 (3 bits)
 #[inline(always)]
 pub const fn pack_flip_and_rotation(flip: Flip, rotation: Rotation) -> u8 {
-    flip.0 as u8 | (rotation.0 << 3)
+    flip.0 as u8 | ((rotation.0 as u8) << 3)
 }
 
 #[inline(always)]
 pub const fn unpack_flip_and_rotation(packed: u8) -> (Flip, Rotation) {
     let rotation = (packed >> 3) % 24;
-    (Flip(flip::FlipState::from_u8_wrapping(packed)), Rotation(rotation))
+    (
+        Flip::from_u8_wrapping(packed),
+        unsafe { Rotation::from_u8_unchecked(rotation) },
+    )
 }
 
 // verified (2025-12-28)
@@ -63,14 +67,14 @@ pub const fn wrap_angle(angle: i32) -> i32 {
 /// is the most typical cache line size on modern (circa 2026) hardware.
 #[repr(C, align(64))]
 pub struct CacheAlignedArray<T: 'static + Sized, const LEN: usize> {
-    pub array: [T; LEN],
+    pub array: CachePadded<[T; LEN]>,
 }
 
 impl<T, const LEN: usize> CacheAlignedArray<T, LEN> {
     #[must_use]
     #[inline(always)]
     pub const fn new(array: [T; LEN]) -> Self {
-        Self { array }
+        Self { array: CachePadded { value: array } }
     }
 }
 
@@ -79,14 +83,14 @@ impl<T, const LEN: usize> ::core::ops::Deref for CacheAlignedArray<T, LEN> {
     
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        &self.array
+        &self.array.value
     }
 }
 
 impl<T, const LEN: usize> ::core::ops::DerefMut for CacheAlignedArray<T, LEN> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.array
+        &mut self.array.value
     }
 }
 
@@ -214,52 +218,98 @@ mod tests {
     }
     
     use crate::orient_table::*;
-    // unverified
-    // I used this to generate the table in maptable.rs and I don't need it anymore, but I'm going
-    // to keep it around just in case.
-    fn map_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
-        // First I will attempt a naive implementation, then I will use the naive implementation to generate code
-        // for a more optimized implementation.
-        // First get the source face
-        let source_face = orientation.source_face(face);
-        // next, get the up, right, down, and left for the source face and arg face.
-        let face_up = face.up();
-        let face_right = face.right();
-        let src_up = source_face.up();
-        let src_right = source_face.right();
-        let src_down = source_face.down();
-        let src_left = source_face.left();
-        // Next, reface the src_dir faces
-        let rsrc_up = orientation.reface(src_up);
-        let rsrc_right = orientation.reface(src_right);
-        let rsrc_down = orientation.reface(src_down);
-        let rsrc_left = orientation.reface(src_left);
-        // Now match up the faces
-        // x_map and y_map must use right and up faces because the polarity is independent.
-        let x_map = if face_right == rsrc_right { // PosX :facing: PosX, x maps to PosX (no change).
-            AxisMap::PosX
-        } else if face_right == rsrc_up { // PosX :facing: PosY, 1 turn counter-clockwise, NegY in place of PosX
-            AxisMap::NegY
-        } else if face_right == rsrc_left { // PosX :facing: NegX, x maps to NegX
-            AxisMap::NegX
-        } else { // PosX facing NegY, 1 clockwise turn, PosY is now in place of PosX
-            AxisMap::PosY
-        };
+    
+    // const fn map_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
+    //     // First I will attempt a naive implementation, then I will use the naive implementation to generate code
+    //     // for a more optimized implementation.
+    //     // First get the source face
+    //     let source_face = orientation.source_face(face);
+    //     // next, get the up, right, down, and left for the source face and arg face.
+    //     let face_up = face.up();
+    //     let face_right = face.right();
+    //     let src_up = source_face.up();
+    //     let src_right = source_face.right();
+    //     let src_down = source_face.down();
+    //     let src_left = source_face.left();
+    //     // Next, reface the src_dir faces
+    //     let rsrc_up = orientation.reface(src_up);
+    //     let rsrc_right = orientation.reface(src_right);
+    //     let rsrc_down = orientation.reface(src_down);
+    //     let rsrc_left = orientation.reface(src_left);
+    //     // Now match up the faces
+    //     // x_map and y_map must use right and up faces because the polarity is independent.
+    //     let x_map = if face_right as u8 == rsrc_right as u8 { // PosX :facing: PosX, x maps to PosX (no change).
+    //         AxisMap::PosX
+    //     } else if face_right as u8 == rsrc_up as u8 { // PosX :facing: PosY, 1 turn counter-clockwise, NegY in place of PosX
+    //         AxisMap::NegY
+    //     } else if face_right as u8 == rsrc_left as u8 { // PosX :facing: NegX, x maps to NegX
+    //         AxisMap::NegX
+    //     } else { // PosX facing NegY, 1 clockwise turn, PosY is now in place of PosX
+    //         AxisMap::PosY
+    //     };
         
-        let y_map = if face_up == rsrc_up {
-            AxisMap::PosY
-        } else if face_up == rsrc_left {
-            AxisMap::PosX
-        } else if face_up == rsrc_down {
-            AxisMap::NegY
-        } else {
-            AxisMap::NegX
-        };
-        CoordMap::new(x_map, y_map)
-    }
+    //     let y_map = if face_up as u8 == rsrc_up as u8 {
+    //         AxisMap::PosY
+    //     } else if face_up as u8 == rsrc_left as u8 {
+    //         AxisMap::PosX
+    //     } else if face_up as u8 == rsrc_down as u8 {
+    //         AxisMap::NegY
+    //     } else {
+    //         AxisMap::NegX
+    //     };
+    //     CoordMap::new(x_map, y_map)
+    // }
+    
+    // const fn map_face_coord_table() -> CacheAlignedArray<CoordMap, 1152> {
+    //     let mut arr = [CoordMap::new(AxisMap::PosX, AxisMap::PosY); 1152];
+    //     let mut index = 0usize;
+    //     let mut flip_i = 0u8;
+    //     while flip_i < 8 {
+    //         let mut rot_i = 0u8;
+    //         while rot_i < 24 {
+    //             // Direction::INDEX_ORDER
+    //             let mut dir_i = 0usize;
+    //             while dir_i < Direction::INDEX_ORDER.len() {
+    //                 let orientation = Orientation::new(Rotation(rot_i), unsafe { Flip::from_u8_unchecked(flip_i) });
+    //                 let face = Direction::INDEX_ORDER[dir_i];
+    //                 arr[index] = map_face_coord_naive(orientation, face);
+    //                 index += 1;
+    //                 dir_i += 1;
+    //             }
+    //             rot_i += 1;
+    //         }
+    //         flip_i += 1;
+    //     }
+    //     CacheAlignedArray::new(arr)
+    // }
+    
+    // #[test]
+    // fn map_coord_gencode() {
+    //     let output = {
+    //         use std::fmt::Write;
+    //         let mut output = String::new();
+    //         let mut count = 0usize;
+    //         for flipi in 0..8 { // flip
+    //             for roti in 0..24 { // rotation
+    //                 Direction::iter_discriminant_order().for_each(|face| {
+    //                     count += 1;
+    //                     let map = map_face_coord_naive(Orientation::new(Rotation(roti as u8), unsafe { Flip::from_u8_unchecked(flipi as u8) }), face);
+    //                     let (x_map, y_map) = map.mapper.to_pair();
+    //                     writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
+    //                 });
+    //             }
+    //         }
+    //         output
+    //     };
+    //     use std::io::{Write, BufWriter};
+    //     use std::fs::File;
+    //     let mut writer = BufWriter::new(File::create("./ignore/map_coord_table.rs").expect("Failed to open file"));
+    //     writer.write_all(output.as_bytes()).expect("Failed to write file.");
+    //     println!("Wrote the output to file at ./ignore/map_coord_table.rs");
+    // }
     
     // unverified
-    fn source_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
+    const fn source_face_coord_naive(orientation: Orientation, face: Direction) -> CoordMap {
         // First I will attempt a naive implementation, then I will use the naive implementation to generate code
         // for a more optimized implementation.
         // First get the source face
@@ -275,51 +325,25 @@ mod tests {
         let rsrc_up = orientation.reface(src_up);
         let rsrc_right = orientation.reface(src_right);
         // Now match up the faces
-        let x_map = if rsrc_right == face_right {
+        let x_map = if rsrc_right as u8 == face_right as u8 {
             AxisMap::PosX
-        } else if rsrc_right == face_down {
+        } else if rsrc_right as u8 == face_down as u8 {
             AxisMap::PosY
-        } else if rsrc_right == face_left {
+        } else if rsrc_right as u8 == face_left as u8 {
             AxisMap::NegX
         } else {
             AxisMap::NegY
         };
-        let y_map = if rsrc_up == face_up {
+        let y_map = if rsrc_up as u8 == face_up as u8 {
             AxisMap::PosY
-        } else if rsrc_up == face_right {
+        } else if rsrc_up as u8 == face_right as u8 {
             AxisMap::NegX
-        } else if rsrc_up == face_down {
+        } else if rsrc_up as u8 == face_down as u8 {
             AxisMap::NegY
         } else {
             AxisMap::PosX
         };
         CoordMap::new(x_map, y_map)
-    }
-    
-    // unverified
-    #[test]
-    fn map_coord_gencode() {
-        let output = {
-            use std::fmt::Write;
-            let mut output = String::new();
-            let mut count = 0usize;
-            for flipi in 0..8 { // flip
-                for roti in 0..24 { // rotation
-                    Direction::iter_discriminant_order().for_each(|face| {
-                        count += 1;
-                        let map = map_face_coord_naive(Orientation::new(Rotation(roti as u8), unsafe { Flip::from_u8_unchecked(flipi as u8) }), face);
-                        let (x_map, y_map) = map.mapper.to_pair();
-                        writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
-                    });
-                }
-            }
-            output
-        };
-        use std::io::{Write, BufWriter};
-        use std::fs::File;
-        let mut writer = BufWriter::new(File::create("./ignore/map_coord_table.rs").expect("Failed to open file"));
-        writer.write_all(output.as_bytes()).expect("Failed to write file.");
-        println!("Wrote the output to file at ./ignore/map_coord_table.rs");
     }
     
     // unverified
@@ -333,7 +357,11 @@ mod tests {
                 for roti in 0..24 { // rotation
                     Direction::iter_discriminant_order().for_each(|face| {
                         count += 1;
-                        let map = source_face_coord_naive(Orientation::new(Rotation(roti as u8), unsafe { Flip::from_u8_unchecked(flipi as u8) }), face);
+                        let map = source_face_coord_naive(Orientation::new(
+                            unsafe { Rotation::from_u8_unchecked(roti as u8) },
+                            unsafe { Flip::from_u8_unchecked(flipi as u8) }),
+                            face,
+                        );
                         let (x_map, y_map) = map.mapper.to_pair();
                         writeln!(output, "CoordMap::new(AxisMap::{:?}, AxisMap::{:?}),", x_map, y_map).unwrap();
                     });

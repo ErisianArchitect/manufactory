@@ -4,66 +4,67 @@
 ||So an angle of 1 would be 90 degress, 2 would be 180, and 3 would be 270               ||
 **---------------------------------------------------------------------------------------*/
 
+use paste::paste;
+use mfcore::lowlevel::CachePadded;
 use crate::{
     direction::Direction,
     orientation::Orientation,
     wrap_angle,
 };
 
-// For cache alignment on most targets.
-#[repr(C, align(64))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Cached256ByteArray([u8; 256]);
-
-// 
-pub(crate) const CACHED_WRAP_U8_ARRAY: Cached256ByteArray = Cached256ByteArray({
+// verified (2026-1-5)
+pub(crate) const CACHED_WRAP_U8_ARRAY: CachePadded<[u8; 256]> = {
     const ROTATIONS_COUNT_U8: u8 = 24;
-    let mut arr: [u8; 256] = [0u8; 256];
+    let mut arr: CachePadded<[u8; 256]> = CachePadded::new([0u8; 256]);
     let mut index: usize = 0;
     while index < 256 {
         let answer: u8 = index as u8 % ROTATIONS_COUNT_U8;
-        arr[index] = answer;
+        arr.value[index] = answer;
         index += 1usize;
     }
     arr
-});
+};
 
-#[inline]
+// hopefully speeds this operation up by using a (hopefully) cached table.
+#[inline(always)]
 pub const fn wrap_rotation_u8(rotation: u8) -> u8 {
-    CACHED_WRAP_U8_ARRAY.0[rotation as usize]
+    CACHED_WRAP_U8_ARRAY.value[rotation as usize]
 }
 
+// Verified (2026-1-4)
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Rot {
     #[default]
     PosY0 = 0,
-    PosX0 = 1,
-    PosZ0 = 2,
-    NegY0 = 3,
-    NegX0 = 4,
-    NegZ0 = 5,
-    PosY1 = 6,
-    PosX1 = 7,
-    PosZ1 = 8,
-    NegY1 = 9,
-    NegX1 = 10,
-    NegZ1 = 11,
-    PosY2 = 12,
-    PosX2 = 13,
-    PosZ2 = 14,
-    NegY2 = 15,
-    NegX2 = 16,
-    NegZ2 = 17,
-    PosY3 = 18,
-    PosX3 = 19,
-    PosZ3 = 20,
-    NegY3 = 21,
-    NegX3 = 22,
+    PosY1 = 1,
+    PosY2 = 2,
+    PosY3 = 3,
+    PosX0 = 4,
+    PosX1 = 5,
+    PosX2 = 6,
+    PosX3 = 7,
+    PosZ0 = 8,
+    PosZ1 = 9,
+    PosZ2 = 10,
+    PosZ3 = 11,
+    NegY0 = 12,
+    NegY1 = 13,
+    NegY2 = 14,
+    NegY3 = 15,
+    NegX0 = 16,
+    NegX1 = 17,
+    NegX2 = 18,
+    NegX3 = 19,
+    NegZ0 = 20,
+    NegZ1 = 21,
+    NegZ2 = 22,
     NegZ3 = 23,
 }
 
 impl Rot {
+    pub const UNROTATED: Self = Self::PosY0;
+    pub const MAX: Self = Self::PosZ3;
     #[inline(always)]
     pub const fn as_u8(self) -> u8 {
         self as u8
@@ -76,7 +77,7 @@ impl Rot {
     }
     
     #[inline(always)]
-    pub const unsafe fn from_u8(value: u8) -> Option<Self> {
+    pub const fn from_u8(value: u8) -> Option<Self> {
         if value >= 24 {
             return None;
         }
@@ -86,23 +87,73 @@ impl Rot {
     /// `value % 24`
     #[inline(always)]
     pub const fn from_u8_wrapping(value: u8) -> Self {
-        let wrapped = value % 24;
+        let wrapped = wrap_rotation_u8(value);
         unsafe { Self::from_u8_unchecked(wrapped) }
     }
-    
-    
 }
 
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Rotation(pub(crate) u8);
+pub struct Rotation(pub(crate) Rot);
+
+// const assertions.
+const _: () = {
+    let bare_size = size_of::<Rotation>();
+    let opt_size = size_of::<Option<Rotation>>();
+    if bare_size > 1 {
+        panic!("Size is greater than 1.");
+    }
+    if bare_size != opt_size {
+        panic!("Niche was not used.");
+    }
+};
+
+macro_rules! rotate_coord_fns {
+    ($(
+        $type:ty
+    ),*$(,)?) => {
+        $(
+            paste!{
+                // verified (2026-1-5)
+                pub const fn [<rotate_coord_ $type>](self, (x, y, z): ($type, $type, $type)) -> ($type, $type, $type) {
+                    use Rot::*;
+                    match self.0 {
+                        PosY0 /* (0, PosY) */ => (x, y, z), // Default rotation, no change.
+                        PosY1 /* (1, PosY) */ => (z, y, -x),
+                        PosY2 /* (2, PosY) */ => (-x, y, -z),
+                        PosY3 /* (3, PosY) */ => (-z, y, x),
+                        PosX0 /* (0, PosX) */ => (y, -z, -x),
+                        PosX1 /* (1, PosX) */ => (y, x, -z),
+                        PosX2 /* (2, PosX) */ => (y, z, x),
+                        PosX3 /* (3, PosX) */ => (y, -x, z),
+                        PosZ0 /* (0, PosZ) */ => (x, -z, y),
+                        PosZ1 /* (1, PosZ) */ => (z, x, y),
+                        PosZ2 /* (2, PosZ) */ => (-x, z, y),
+                        PosZ3 /* (3, PosZ) */ => (-z, -x, y),
+                        NegY0 /* (0, NegY) */ => (x, -y, -z),
+                        NegY1 /* (1, NegY) */ => (z, -y, x),
+                        NegY2 /* (2, NegY) */ => (-x, -y, z),
+                        NegY3 /* (3, NegY) */ => (-z, -y, -x),
+                        NegX0 /* (0, NegX) */ => (-y, -z, x),
+                        NegX1 /* (1, NegX) */ => (-y, x, z),
+                        NegX2 /* (2, NegX) */ => (-y, z, -x),
+                        NegX3 /* (3, NegX) */ => (-y, -x, -z),
+                        NegZ0 /* (0, NegZ) */ => (-x, -z, -y),
+                        NegZ1 /* (1, NegZ) */ => (-z, x, -y),
+                        NegZ2 /* (2, NegZ) */ => (x, z, -y),
+                        NegZ3 /* (3, NegZ) */ => (z, -x, -y),
+                    }
+                }
+            }
+        )*
+    };
+}
 
 impl Rotation {
-    pub const MIN: Self = Self(0);
+    pub const MIN: Self = Self(Rot::UNROTATED);
     // only 24 valid rotations (6 sides * 4 angles)
-    pub const MAX: Self = Self(23);
+    pub const MAX: Self = Self(Rot::MAX);
     
-    pub(crate) const WRAP_U8: u8 = 6/* sides */ * 4/* angles */;
     pub(crate) const ANGLE_MASK: u8 = 0b00000011;
     pub(crate) const ANGLE_MASK_I32: i32 = Self::ANGLE_MASK as i32;
     /// ((up << UP_SHIFT) & UP_MASK) | (angle & ANGLE_MASK)
@@ -172,26 +223,14 @@ impl Rotation {
     }
     
     #[inline]
-    pub const fn new(up: Direction, angle: i32) -> Self {
-        let up = up.rotation_discriminant();
-        let angle = wrap_angle(angle) as u8;
-        Self(angle | (up << Self::UP_SHIFT))
-    }
-    
-    #[inline]
-    pub const fn from_up(up: Direction) -> Self {
-        Self::new(up, 0)
-    }
-    
-    #[inline]
     pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
-        Self(value)
+        Self(unsafe { Rot::from_u8_unchecked(value) })
     }
     
     #[inline]
     pub const fn from_u8(value: u8) -> Option<Self> {
         // Only first 24 values are valid rotations.
-        if value > Self::MAX.0 {
+        if value > Self::MAX.0 as u8 {
             return None;
         }
         // SAFETY: Guard clause ensures that u8 is valid value.
@@ -199,18 +238,25 @@ impl Rotation {
     }
     
     #[inline]
-    pub(crate) const fn wrap_rotation_u8(rotation: u8) -> u8 {
-        rotation % Self::WRAP_U8
-    }
-    
-    #[inline]
     pub const fn from_u8_wrapping(value: u8) -> Self {
-        unsafe { Self::from_u8_unchecked(value % Self::WRAP_U8) }
+        unsafe { Self::from_u8_unchecked(wrap_rotation_u8(value)) }
     }
     
     #[inline]
-    pub const fn to_u8(self) -> u8 {
-        self.0
+    pub const fn new(up: Direction, angle: i32) -> Self {
+        let up = up.rotation_discriminant();
+        let angle = wrap_angle(angle) as u8;
+        unsafe { Self::from_u8_unchecked(angle | (up << Self::UP_SHIFT)) }
+    }
+    
+    #[inline]
+    pub const fn from_up(up: Direction) -> Self {
+        Self::new(up, 0)
+    }
+    
+    #[inline(always)]
+    pub const fn as_u8(self) -> u8 {
+        self.0 as u8
     }
     
     /// Creates a new [Rotation] with [Direction::NegX] as the up direction.
@@ -330,29 +376,33 @@ impl Rotation {
     /// Cycle through rotations (24 in total).
     #[inline]
     #[must_use]
-    pub const fn cycle(self, offset: i32) -> Rotation {
+    pub const fn cycle(self, offset: i32) -> Self {
         let index = self.0 as i64;
         // Don't use wrapping_add here, as tempting as it seems. It would be incorrect because 2**32 is not a multiple of 24.
         let new_index = (index + offset as i64).rem_euclid(24) as u8;
-        Rotation(new_index)
+        unsafe { Self::from_u8_unchecked(new_index) }
     }
 
     #[inline]
     pub const fn angle(self) -> i32 {
-        (self.0 & Self::ANGLE_MASK) as i32
+        (self.0 as u8 & Self::ANGLE_MASK) as i32
     }
 
     #[inline]
     pub fn set_up(&mut self, up: Direction) {
         const ANGLE_ISOLATE_MASK: u8 = 0b00000011;
-        self.0 = (self.0 & ANGLE_ISOLATE_MASK) | (up.rotation_discriminant() << Self::UP_SHIFT);
+        self.0 = unsafe {
+            Rot::from_u8_unchecked((self.0 as u8 & ANGLE_ISOLATE_MASK) | (up.rotation_discriminant() << Self::UP_SHIFT))
+        };
     }
 
     // verified (2025-12-28)
     #[inline]
     pub fn set_angle(&mut self, angle: i32) {
         const UP_ISOLATE_MASK: u8 = 0b11111100;
-        self.0 = (self.0 & UP_ISOLATE_MASK) | wrap_angle(angle) as u8;
+        self.0 = unsafe {
+            Rot::from_u8_unchecked((self.0 as u8 & UP_ISOLATE_MASK) | wrap_angle(angle) as u8)
+        };
     }
     
     #[inline]
@@ -360,222 +410,229 @@ impl Rotation {
         RotationIterator::START
     }
     
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn up(self) -> Direction {
-        let up = self.0 >> Self::UP_SHIFT;
-        match up {
-            0 => Direction::PosY,
-            1 => Direction::PosX,
-            2 => Direction::PosZ,
-            3 => Direction::NegY,
-            4 => Direction::NegX,
-            5 => Direction::NegZ,
-            _ => unreachable!(),
+        use Direction::*;
+        use Rot::*;
+        match self.0 {
+            PosY0 => PosY,
+            PosY1 => PosY,
+            PosY2 => PosY,
+            PosY3 => PosY,
+            PosX0 => PosX,
+            PosX1 => PosX,
+            PosX2 => PosX,
+            PosX3 => PosX,
+            PosZ0 => PosZ,
+            PosZ1 => PosZ,
+            PosZ2 => PosZ,
+            PosZ3 => PosZ,
+            NegY0 => NegY,
+            NegY1 => NegY,
+            NegY2 => NegY,
+            NegY3 => NegY,
+            NegX0 => NegX,
+            NegX1 => NegX,
+            NegX2 => NegX,
+            NegX3 => NegX,
+            NegZ0 => NegZ,
+            NegZ1 => NegZ,
+            NegZ2 => NegZ,
+            NegZ3 => NegZ,
         }
     }
 
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn down(self) -> Direction {
-        let up = self.0 >> Self::UP_SHIFT;
-        match up {
-            4 => Direction::PosX,
-            3 => Direction::PosY,
-            5 => Direction::PosZ,
-            1 => Direction::NegX,
-            0 => Direction::NegY,
-            2 => Direction::NegZ,
-            _ => unreachable!(),
+        use Direction::*;
+        use Rot::*;
+        match self.0 {
+            PosY0 => NegY,
+            PosY1 => NegY,
+            PosY2 => NegY,
+            PosY3 => NegY,
+            PosX0 => NegX,
+            PosX1 => NegX,
+            PosX2 => NegX,
+            PosX3 => NegX,
+            PosZ0 => NegZ,
+            PosZ1 => NegZ,
+            PosZ2 => NegZ,
+            PosZ3 => NegZ,
+            NegY0 => PosY,
+            NegY1 => PosY,
+            NegY2 => PosY,
+            NegY3 => PosY,
+            NegX0 => PosX,
+            NegX1 => PosX,
+            NegX2 => PosX,
+            NegX3 => PosX,
+            NegZ0 => PosZ,
+            NegZ1 => PosZ,
+            NegZ2 => PosZ,
+            NegZ3 => PosZ,
         }
     }
 
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn left(self) -> Direction {
         use Direction::*;
-        match (self.angle(), self.up()) {
-            (0, PosY) => NegX,
-            (0, PosX) => PosZ,
-            (0, PosZ) => NegX,
-            (0, NegY) => NegX,
-            (0, NegX) => NegZ,
-            (0, NegZ) => PosX,
-            (1, PosY) => PosZ,
-            (1, PosX) => NegY,
-            (1, PosZ) => NegY,
-            (1, NegY) => NegZ,
-            (1, NegX) => NegY,
-            (1, NegZ) => NegY,
-            (2, PosY) => PosX,
-            (2, PosX) => NegZ,
-            (2, PosZ) => PosX,
-            (2, NegY) => PosX,
-            (2, NegX) => PosZ,
-            (2, NegZ) => NegX,
-            (3, PosY) => NegZ,
-            (3, PosX) => PosY,
-            (3, PosZ) => PosY,
-            (3, NegY) => PosZ,
-            (3, NegX) => PosY,
-            (3, NegZ) => PosY,
-            _ => unreachable!(),
+        use Rot::*;
+        match self.0 {
+            PosY0 => NegX,
+            PosY1 => PosZ,
+            PosY2 => PosX,
+            PosY3 => NegZ,
+            PosX0 => PosZ,
+            PosX1 => NegY,
+            PosX2 => NegZ,
+            PosX3 => PosY,
+            PosZ0 => NegX,
+            PosZ1 => NegY,
+            PosZ2 => PosX,
+            PosZ3 => PosY,
+            NegY0 => NegX,
+            NegY1 => NegZ,
+            NegY2 => PosX,
+            NegY3 => PosZ,
+            NegX0 => NegZ,
+            NegX1 => NegY,
+            NegX2 => PosZ,
+            NegX3 => PosY,
+            NegZ0 => PosX,
+            NegZ1 => NegY,
+            NegZ2 => NegX,
+            NegZ3 => PosY,
         }
     }
 
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn right(self) -> Direction {
         use Direction::*;
-        match (self.angle(), self.up()) {
-            (0, PosY) => PosX,
-            (0, PosX) => NegZ,
-            (0, PosZ) => PosX,
-            (0, NegY) => PosX,
-            (0, NegX) => PosZ,
-            (0, NegZ) => NegX,
-            (1, PosY) => NegZ,
-            (1, PosX) => PosY,
-            (1, PosZ) => PosY,
-            (1, NegY) => PosZ,
-            (1, NegX) => PosY,
-            (1, NegZ) => PosY,
-            (2, PosY) => NegX,
-            (2, PosX) => PosZ,
-            (2, PosZ) => NegX,
-            (2, NegY) => NegX,
-            (2, NegX) => NegZ,
-            (2, NegZ) => PosX,
-            (3, PosY) => PosZ,
-            (3, PosX) => NegY,
-            (3, PosZ) => NegY,
-            (3, NegY) => NegZ,
-            (3, NegX) => NegY,
-            (3, NegZ) => NegY,
-            _ => unreachable!(),
+        use Rot::*;
+        match self.0 {
+            PosY0 => PosX,
+            PosY1 => NegZ,
+            PosY2 => NegX,
+            PosY3 => PosZ,
+            PosX0 => NegZ,
+            PosX1 => PosY,
+            PosX2 => PosZ,
+            PosX3 => NegY,
+            PosZ0 => PosX,
+            PosZ1 => PosY,
+            PosZ2 => NegX,
+            PosZ3 => NegY,
+            NegY0 => PosX,
+            NegY1 => PosZ,
+            NegY2 => NegX,
+            NegY3 => NegZ,
+            NegX0 => PosZ,
+            NegX1 => PosY,
+            NegX2 => NegZ,
+            NegX3 => NegY,
+            NegZ0 => NegX,
+            NegZ1 => PosY,
+            NegZ2 => PosX,
+            NegZ3 => NegY,
         }
     }
 
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn forward(self) -> Direction {
         use Direction::*;
-        match (self.angle(), self.up()) {
-            (0, PosY) => NegZ,
-            (0, PosX) => PosY,
-            (0, PosZ) => PosY,
-            (0, NegY) => PosZ,
-            (0, NegX) => PosY,
-            (0, NegZ) => PosY,
-            (1, PosY) => NegX,
-            (1, PosX) => PosZ,
-            (1, PosZ) => NegX,
-            (1, NegY) => NegX,
-            (1, NegX) => NegZ,
-            (1, NegZ) => PosX,
-            (2, PosY) => PosZ,
-            (2, PosX) => NegY,
-            (2, PosZ) => NegY,
-            (2, NegY) => NegZ,
-            (2, NegX) => NegY,
-            (2, NegZ) => NegY,
-            (3, PosY) => PosX,
-            (3, PosX) => NegZ,
-            (3, PosZ) => PosX,
-            (3, NegY) => PosX,
-            (3, NegX) => PosZ,
-            (3, NegZ) => NegX,
-            _ => unreachable!(),
+        use Rot::*;
+        match self.0 {
+            PosY0 => NegZ,
+            PosY1 => NegX,
+            PosY2 => PosZ,
+            PosY3 => PosX,
+            PosX0 => PosY,
+            PosX1 => PosZ,
+            PosX2 => NegY,
+            PosX3 => NegZ,
+            PosZ0 => PosY,
+            PosZ1 => NegX,
+            PosZ2 => NegY,
+            PosZ3 => PosX,
+            NegY0 => PosZ,
+            NegY1 => NegX,
+            NegY2 => NegZ,
+            NegY3 => PosX,
+            NegX0 => PosY,
+            NegX1 => NegZ,
+            NegX2 => NegY,
+            NegX3 => PosZ,
+            NegZ0 => PosY,
+            NegZ1 => PosX,
+            NegZ2 => NegY,
+            NegZ3 => NegX,
         }
     }
 
-    // verified (2025-12-28)
+    // verified (2026-1-5)
     pub const fn backward(self) -> Direction {
-        // self.forward().invert()
         use Direction::*;
-        match (self.angle(), self.up()) {
-            (0, PosY) => PosZ,
-            (0, PosX) => NegY,
-            (0, PosZ) => NegY,
-            (0, NegY) => NegZ,
-            (0, NegX) => NegY,
-            (0, NegZ) => NegY,
-            (1, PosY) => PosX,
-            (1, PosX) => NegZ,
-            (1, PosZ) => PosX,
-            (1, NegY) => PosX,
-            (1, NegX) => PosZ,
-            (1, NegZ) => NegX,
-            (2, PosY) => NegZ,
-            (2, PosX) => PosY,
-            (2, PosZ) => PosY,
-            (2, NegY) => PosZ,
-            (2, NegX) => PosY,
-            (2, NegZ) => PosY,
-            (3, PosY) => NegX,
-            (3, PosX) => PosZ,
-            (3, PosZ) => NegX,
-            (3, NegY) => NegX,
-            (3, NegX) => NegZ,
-            (3, NegZ) => PosX,
-            _ => unreachable!(),
+        use Rot::*;
+        match self.0 {
+            PosY0 => PosZ,
+            PosY1 => PosX,
+            PosY2 => NegZ,
+            PosY3 => NegX,
+            PosX0 => NegY,
+            PosX1 => NegZ,
+            PosX2 => PosY,
+            PosX3 => PosZ,
+            PosZ0 => NegY,
+            PosZ1 => PosX,
+            PosZ2 => PosY,
+            PosZ3 => NegX,
+            NegY0 => NegZ,
+            NegY1 => PosX,
+            NegY2 => PosZ,
+            NegY3 => NegX,
+            NegX0 => NegY,
+            NegX1 => PosZ,
+            NegX2 => PosY,
+            NegX3 => NegZ,
+            NegZ0 => NegY,
+            NegZ1 => NegX,
+            NegZ2 => PosY,
+            NegZ3 => PosX,
         }        
     }
+    
+    rotate_coord_fns!(i8, i16, i32, i64, i128, isize, f32, f64);
 
     // verified (2025-12-30)
     /// Rotates `coord`.
     pub fn rotate_coord<T: Copy + std::ops::Neg<Output = T>, C: Into<(T, T, T)> + From<(T, T, T)>>(self, coord: C) -> C {
         let (x, y, z): (T, T, T) = coord.into();
-        // In case this code breaks, I'm leaving the old implementation.
-        // use Direction::*;
-        // C::from(match (self.angle(), self.up()) {
-        //     (0, PosY) => (x, y, z), // Default rotation, no change.
-        //     (0, PosX) => (y, -z, -x),
-        //     (0, PosZ) => (x, -z, y),
-        //     (0, NegY) => (x, -y, -z),
-        //     (0, NegX) => (-y, -z, x),
-        //     (0, NegZ) => (-x, -z, -y),
-        //     (1, PosY) => (-z, y, x),
-        //     (1, PosX) => (y, -x, z),
-        //     (1, PosZ) => (-z, -x, y),
-        //     (1, NegY) => (-z, -y, -x),
-        //     (1, NegX) => (-y, -x, -z),
-        //     (1, NegZ) => (z, -x, -y),
-        //     (2, PosY) => (-x, y, -z),
-        //     (2, PosX) => (y, z, x),
-        //     (2, PosZ) => (-x, z, y),
-        //     (2, NegY) => (-x, -y, z),
-        //     (2, NegX) => (-y, z, -x),
-        //     (2, NegZ) => (x, z, -y),
-        //     (3, PosY) => (z, y, -x),
-        //     (3, PosX) => (y, x, -z),
-        //     (3, PosZ) => (z, x, y),
-        //     (3, NegY) => (z, -y, x),
-        //     (3, NegX) => (-y, x, z),
-        //     (3, NegZ) => (-z, x, -y),
-        // })
         C::from(match self.0 {
-            00 /* (0, PosY) */ => (x, y, z), // Default rotation, no change.
-            01 /* (1, PosY) */ => (z, y, -x),
-            02 /* (2, PosY) */ => (-x, y, -z),
-            03 /* (3, PosY) */ => (-z, y, x),
-            04 /* (0, PosX) */ => (y, -z, -x),
-            05 /* (1, PosX) */ => (y, x, -z),
-            06 /* (2, PosX) */ => (y, z, x),
-            07 /* (3, PosX) */ => (y, -x, z),
-            08 /* (0, PosZ) */ => (x, -z, y),
-            09 /* (1, PosZ) */ => (z, x, y),
-            10 /* (2, PosZ) */ => (-x, z, y),
-            11 /* (3, PosZ) */ => (-z, -x, y),
-            12 /* (0, NegY) */ => (x, -y, -z),
-            13 /* (1, NegY) */ => (z, -y, x),
-            14 /* (2, NegY) */ => (-x, -y, z),
-            15 /* (3, NegY) */ => (-z, -y, -x),
-            16 /* (0, NegX) */ => (-y, -z, x),
-            17 /* (1, NegX) */ => (-y, x, z),
-            18 /* (2, NegX) */ => (-y, z, -x),
-            19 /* (3, NegX) */ => (-y, -x, -z),
-            
-            20 /* (0, NegZ) */ => (-x, -z, -y),
-            21 /* (1, NegZ) */ => (-z, x, -y),
-            22 /* (2, NegZ) */ => (x, z, -y),
-            23 /* (3, NegZ) */ => (z, -x, -y),
-            _  => unreachable!(),
+            Rot::PosY0 /* (0, PosY) */ => (x, y, z), // Default rotation, no change.
+            Rot::PosY1 /* (1, PosY) */ => (z, y, -x),
+            Rot::PosY2 /* (2, PosY) */ => (-x, y, -z),
+            Rot::PosY3 /* (3, PosY) */ => (-z, y, x),
+            Rot::PosX0 /* (0, PosX) */ => (y, -z, -x),
+            Rot::PosX1 /* (1, PosX) */ => (y, x, -z),
+            Rot::PosX2 /* (2, PosX) */ => (y, z, x),
+            Rot::PosX3 /* (3, PosX) */ => (y, -x, z),
+            Rot::PosZ0 /* (0, PosZ) */ => (x, -z, y),
+            Rot::PosZ1 /* (1, PosZ) */ => (z, x, y),
+            Rot::PosZ2 /* (2, PosZ) */ => (-x, z, y),
+            Rot::PosZ3 /* (3, PosZ) */ => (-z, -x, y),
+            Rot::NegY0 /* (0, NegY) */ => (x, -y, -z),
+            Rot::NegY1 /* (1, NegY) */ => (z, -y, x),
+            Rot::NegY2 /* (2, NegY) */ => (-x, -y, z),
+            Rot::NegY3 /* (3, NegY) */ => (-z, -y, -x),
+            Rot::NegX0 /* (0, NegX) */ => (-y, -z, x),
+            Rot::NegX1 /* (1, NegX) */ => (-y, x, z),
+            Rot::NegX2 /* (2, NegX) */ => (-y, z, -x),
+            Rot::NegX3 /* (3, NegX) */ => (-y, -x, -z),
+            Rot::NegZ0 /* (0, NegZ) */ => (-x, -z, -y),
+            Rot::NegZ1 /* (1, NegZ) */ => (-z, x, -y),
+            Rot::NegZ2 /* (2, NegZ) */ => (x, z, -y),
+            Rot::NegZ3 /* (3, NegZ) */ => (z, -x, -y),
         })
     }
     
@@ -998,7 +1055,7 @@ impl RotationIterator {
     
     #[inline]
     pub const fn start_at(rotation: Rotation) -> Self {
-        Self { rotation: rotation.0 }
+        Self { rotation: rotation.0 as u8 }
     }
     
     #[inline]
@@ -1010,7 +1067,7 @@ impl RotationIterator {
         if self.rotation == 24 {
             return None;
         }
-        Some(Rotation(self.rotation))
+        Some(unsafe { Rotation::from_u8_unchecked(self.rotation) })
     }
 }
 
@@ -1025,10 +1082,10 @@ impl Iterator for RotationIterator {
     }
     
     fn next(&mut self) -> Option<Self::Item> {
-        if self.rotation == 24 {
+        if self.rotation >= 24 {
             return None;
         }
-        let result = Some(Rotation(self.rotation));
+        let result = Some(unsafe { Rotation::from_u8_unchecked(self.rotation) });
         self.rotation += 1;
         result
     }

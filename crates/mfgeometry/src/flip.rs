@@ -300,6 +300,7 @@ impl Flip {
         i32,
         i64,
         i128,
+        isize,
         f32,
         f64,
     );

@@ -61,8 +61,7 @@ macro_rules! map_coord_impls {
                 /// to get your final coord.
                 #[inline]
                 pub const fn [<map_face_coord_ $type>](self, face: Direction, uv: ($type, $type)) -> ($type, $type) {
-                    let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
-                    let coordmap = orient_table::MAP_COORD_TABLE.array[table_index];
+                    let coordmap = orient_table::MAP_FACE_COORD_TABLE.get(self.rotation(), self.flip(), face);
                     coordmap.[<map_ $type>](uv)
                 }
                 
@@ -73,8 +72,7 @@ macro_rules! map_coord_impls {
                 /// to get your final coord.
                 #[inline]
                 pub const fn [<source_face_coord_ $type>](self, face: Direction, uv: ($type, $type)) -> ($type, $type) {
-                    let table_index = orient_table::table_index(self.rotation(), self.flip(), face);
-                    let coordmap = orient_table::SOURCE_FACE_COORD_TABLE.array[table_index];
+                    let coordmap = orient_table::SOURCE_FACE_COORD_TABLE.get(self.rotation(), self.flip(), face);
                     coordmap.[<map_ $type>](uv)
                 }
             }
@@ -270,7 +268,8 @@ impl Orientation {
 
     #[inline(always)]
     pub const fn rotation(self) -> Rotation {
-        Rotation(self.0 >> 3)
+        // SAFETY: Here, we assume that `self` is a valid Orientation.
+        unsafe { Rotation::from_u8_unchecked(self.0 >> 3) }
     }
 
     #[inline]
@@ -287,7 +286,7 @@ impl Orientation {
 
     #[inline]
     pub const fn set_rotation(&mut self, rotation: Rotation) {
-        self.0 = (self.0 & 0b111) | rotation.0 << 3;
+        self.0 = (self.0 & 0b111) | ((rotation.0 as u8) << 3);
     }
     
     #[inline]
@@ -448,6 +447,7 @@ impl Orientation {
         i32,
         i64,
         i128,
+        isize,
         f32,
         f64,
     );
@@ -477,8 +477,16 @@ impl Orientation {
         result = target * stage2
         */
         // wtf... how does this work?
-        let stage1 = self.reorient(orientation);
-        let stage2 = stage1.reorient(self);
+        
+        /*
+        stage1 = orientation.reorient(self)
+        stage2 = self.reorient(stage1)
+        self.reorient(stage2)
+        
+        */
+        // TODO: Fully verify this.
+        let stage1 = orientation.reorient(self);
+        let stage2 = self.reorient(stage1);
         self.reorient(stage2)
     }
 
@@ -677,17 +685,20 @@ impl RotationFirstOrientationIterator {
     pub const fn start_at(orientation: Orientation) -> Self {
         Self {
             flip: orientation.flip().0 as u8,
-            rotation: orientation.rotation().0,
+            rotation: orientation.rotation().0 as u8,
         }
     }
     
     /// Gets the current element without advancing the iterator.
     #[inline]
     pub const fn current(self) -> Option<Orientation> {
-        if self.flip == 8 {
+        if self.flip >= 8 {
             return None;
         }
-        Some(Orientation::new(Rotation(self.rotation), unsafe { Flip::from_u8_unchecked(self.flip) }))
+        Some(Orientation::new(
+            unsafe { Rotation::from_u8_unchecked(self.rotation) },
+            unsafe { Flip::from_u8_unchecked(self.flip) },
+        ))
     }
 }
 
@@ -704,7 +715,10 @@ impl Iterator for RotationFirstOrientationIterator {
         if self.flip == 8 {
             return None;
         }
-        let result = Some(Orientation::new(Rotation(self.rotation), unsafe { Flip::from_u8_unchecked(self.flip) }));
+        let result = Some(Orientation::new(
+            unsafe { Rotation::from_u8_unchecked(self.rotation) },
+            unsafe { Flip::from_u8_unchecked(self.flip) }
+        ));
         self.rotation += 1;
         if self.rotation == 24 {
             self.flip += 1;

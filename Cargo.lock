@@ -103,6 +103,9 @@ version = "0.1.0"
 [[package]]
 name = "mfcore"
 version = "0.1.0"
+dependencies = [
+ "paste",
+]
 
 [[package]]
 name = "mfdata"
@@ -116,6 +119,7 @@ version = "0.1.0"
 name = "mfgeometry"
 version = "0.1.0"
 dependencies = [
+ "mfcore",
  "paste",
 ]
 

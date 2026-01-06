@@ -86,6 +86,7 @@ impl Direction {
     pub const SOUTH: Direction = Direction::BACKWARD;
     pub const EAST: Direction = Direction::RIGHT;
 
+    // verified (2026-1-5)
     /// Invert the [Direction]. (`NegX` becomes `PosX`, `PosX` becomes `NegX`, etc.)
     #[inline]
     pub const fn invert(self) -> Self {
@@ -133,7 +134,8 @@ impl Direction {
             NegZ | PosZ => Axis::Z,
         }
     }
-
+    
+    // verified (2026-1-5)
     /// Represents discriminant as single bit value.
     #[inline]
     pub const fn bit(self) -> u8 {
