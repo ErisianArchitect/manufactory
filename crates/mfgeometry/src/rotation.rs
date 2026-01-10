@@ -7,9 +7,7 @@
 use paste::paste;
 use mfcore::lowlevel::CachePadded;
 use crate::{
-    direction::Direction,
-    orientation::Orientation,
-    wrap_angle,
+    direction::Direction, faces::Faces, orientation::Orientation, wrap_angle
 };
 
 // verified (2026-1-5)
@@ -340,36 +338,74 @@ impl Rotation {
         self.with_flip(super::Flip::NONE)
     }
     
-    // verified (2025-12-28)
+    #[inline(always)]
     pub const fn from_up_and_forward(up: Direction, forward: Direction) -> Option<Rotation> {
-        use Direction::*;
-        Some(Rotation::new(up, match (up, forward) {
-            (PosY, PosX) => 3,
-            (PosY, PosZ) => 2,
-            (PosY, NegX) => 1,
-            (PosY, NegZ) => 0,
-            (PosX, PosY) => 0,
-            (PosX, PosZ) => 1,
-            (PosX, NegY) => 2,
-            (PosX, NegZ) => 3,
-            (PosZ, PosY) => 0,
-            (PosZ, PosX) => 3,
-            (PosZ, NegY) => 2,
-            (PosZ, NegX) => 1,
-            (NegY, PosX) => 3,
-            (NegY, PosZ) => 0,
-            (NegY, NegX) => 1,
-            (NegY, NegZ) => 2,
-            (NegX, PosY) => 0,
-            (NegX, PosZ) => 3,
-            (NegX, NegY) => 2,
-            (NegX, NegZ) => 1,
-            (NegZ, PosY) => 0,
-            (NegZ, PosX) => 1,
-            (NegZ, NegY) => 2,
-            (NegZ, NegX) => 3,
-            _ => return None,
-        }))
+        // verified (2026-1-9)
+        const UP_AND_FORWARD_MATRIX: mfcore::lowlevel::Align64<[[Option<Rotation>; 8]; 6]> = {
+            const fn from_up_and_forward_slow(up: Direction, forward: Direction) -> Option<Rotation> {
+                use Direction::*;
+                Some(Rotation::new(up, match (up, forward) {
+                    (PosY, PosX) => 3,
+                    (PosY, PosZ) => 2,
+                    (PosY, NegX) => 1,
+                    (PosY, NegZ) => 0,
+                    (PosX, PosY) => 0,
+                    (PosX, PosZ) => 1,
+                    (PosX, NegY) => 2,
+                    (PosX, NegZ) => 3,
+                    (PosZ, PosY) => 0,
+                    (PosZ, PosX) => 3,
+                    (PosZ, NegY) => 2,
+                    (PosZ, NegX) => 1,
+                    (NegY, PosX) => 3,
+                    (NegY, PosZ) => 0,
+                    (NegY, NegX) => 1,
+                    (NegY, NegZ) => 2,
+                    (NegX, PosY) => 0,
+                    (NegX, PosZ) => 3,
+                    (NegX, NegY) => 2,
+                    (NegX, NegZ) => 1,
+                    (NegZ, PosY) => 0,
+                    (NegZ, PosX) => 1,
+                    (NegZ, NegY) => 2,
+                    (NegZ, NegX) => 3,
+                    _ => return None,
+                }))
+            }
+            let mut matrix = mfcore::lowlevel::Align64([[None; 8]; 6]);
+            let mut up_i = 0usize;
+            while up_i < 6 {
+                let up = Direction::INDEX_ORDER[up_i];
+                let mut fwd_i = 0usize;
+                while fwd_i < 6 {
+                    let fwd = Direction::INDEX_ORDER[fwd_i];
+                    matrix.0[up_i][fwd_i] = from_up_and_forward_slow(up, fwd);
+                    fwd_i += 1;
+                }
+                up_i += 1;
+            }
+            matrix
+        };
+        UP_AND_FORWARD_MATRIX.0[up.rotation_discriminant() as usize][forward.rotation_discriminant() as usize]
+    }
+    
+    #[inline(always)]
+    pub const fn faces(self) -> Faces {
+        const UP_FORWARD_RIGHT_TABLE: CachePadded<[Faces; 24]> = {
+            let mut table = CachePadded::new([Faces::UNORIENTED; 24]);
+            let mut rot_i = 0u8;
+            while rot_i < 24 {
+                let rot = unsafe { Rotation::from_u8_unchecked(rot_i) };
+                table.value[rot_i as usize] = Faces {
+                    up: rot.up(),
+                    right: rot.right(),
+                    forward: rot.forward(),
+                };
+                rot_i += 1;
+            }
+            table
+        };
+        UP_FORWARD_RIGHT_TABLE.value[self.0 as usize]
     }
 
     // Yes, this method works. I checked.
@@ -660,7 +696,6 @@ impl Rotation {
         // By combining the angle, up, and destination into a single index,
         // this could become an O(1) lookup into a table.
         use Direction::*;
-        let index = self.0 as u8;
         match ((self.angle(), self.up()), destination) {
             ((0, PosY), PosY) => PosY,
             ((0, PosY), PosX) => PosX,

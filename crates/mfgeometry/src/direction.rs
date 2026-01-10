@@ -1,10 +1,7 @@
 // Last Reviewed: 2025-12-28
 
 use crate::{
-    axis::Axis,
-    flip::Flip,
-    rotation::Rotation,
-    wrap_angle,
+    axis::Axis, flip::Flip, polarity::Pol, rotation::Rotation, wrap_angle
 };
 
 // NOTE: This API could be made to be universal if I switch NegAxis/PosAxis for named directions such as Up/Down.
@@ -122,6 +119,11 @@ impl Direction {
     pub fn rotate(self, rotation: Rotation) -> Self {
         rotation.reface(self)
     }
+    
+    #[inline]
+    pub const fn is_orthogonal_to(self, direction: Self) -> bool {
+        self.axis() as u8 != direction.axis() as u8
+    }
 
     // verified (2025-12-28)
     /// Gets the [Axis] of the [Direction]
@@ -132,6 +134,40 @@ impl Direction {
             NegX | PosX => Axis::X,
             NegY | PosY => Axis::Y,
             NegZ | PosZ => Axis::Z,
+        }
+    }
+    
+    #[inline]
+    pub const fn polarity(self) -> Pol {
+        use Direction::*;
+        match self {
+            NegX | NegY | NegZ => Pol::Neg,
+            PosX | PosY | PosZ => Pol::Pos,
+        }
+    }
+    
+    #[inline]
+    pub const fn polar_axis(self) -> (Pol, Axis) {
+        use Direction::*;
+        match self {
+            NegX => (Pol::Neg, Axis::X),
+            NegY => (Pol::Neg, Axis::Y),
+            NegZ => (Pol::Neg, Axis::Z),
+            PosX => (Pol::Pos, Axis::X),
+            PosY => (Pol::Pos, Axis::Y),
+            PosZ => (Pol::Pos, Axis::Z),
+        }
+    }
+    
+    #[inline]
+    pub const fn from_polar_axis(polarity: Pol, axis: Axis) -> Self {
+        match (polarity, axis) {
+            (Pol::Neg, Axis::X) => Self::NegX,
+            (Pol::Neg, Axis::Y) => Self::NegY,
+            (Pol::Neg, Axis::Z) => Self::NegZ,
+            (Pol::Pos, Axis::X) => Self::PosX,
+            (Pol::Pos, Axis::Y) => Self::PosY,
+            (Pol::Pos, Axis::Z) => Self::PosZ,
         }
     }
     

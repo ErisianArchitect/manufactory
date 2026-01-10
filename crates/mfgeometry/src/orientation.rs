@@ -1,11 +1,7 @@
 use crate::{
-    direction::Direction,
-    flip::Flip,
-    orient_table,
-    rotation::Rotation,
-    pack_flip_and_rotation,
-    wrap_angle,
+    direction::Direction, flip::Flip, orient_table, orientation_enum::Orient, pack_flip_and_rotation, polarity::Pol, rotation::Rotation, wrap_angle
 };
+use mfcore::lowlevel::CachePadded;
 use paste::paste;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +42,28 @@ impl DeconstructedOrientation {
 //      up   : 5..8
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Orientation(pub(crate) u8);
+pub struct Orientation(pub(crate) Orient);
+
+const _: () = {
+    macro_rules! niche_assert {
+        ($(
+            <$type:ty> == $size:literal,
+        )*) => {
+            $(
+                if ::core::mem::size_of::<$type>() != $size {
+                    panic!(concat!("Niche optimization failed: ", stringify!(<$type> == $size)));
+                }
+            )*
+        };
+    }
+    niche_assert!(
+        <Orientation> == 1,
+        <Option<Option<Option<Option<Orientation>>>>> == 1,
+        <Result<Orientation, ()>> == 1,
+        <Result<Orientation, Orientation>> == 2,
+        <Result<Option<Orientation>, Option<Orientation>>> == 2,
+    );
+};
 
 macro_rules! map_coord_impls {
     ($(
@@ -100,7 +117,7 @@ impl Orientation {
     pub(crate) const ORIENTATION_MAX: u8 = Self::TOTAL_ORIENTATION_COUNT - 1;
     pub const UNORIENTED: Orientation = Orientation::new(Rotation::new(Direction::PosY, 0), Flip::NONE);
     pub const MIN: Self = Self::UNORIENTED;
-    pub const MAX: Self = Self(Self::ORIENTATION_MAX);
+    pub const MAX: Self = unsafe { Self::from_u8_unchecked(Self::ORIENTATION_MAX) };
     pub const ROTATE_X: Orientation = Rotation::ROTATE_X.orientation();
     pub const ROTATE_Y: Orientation = Rotation::ROTATE_Y.orientation();
     pub const ROTATE_Z: Orientation = Rotation::ROTATE_Z.orientation();
@@ -108,21 +125,36 @@ impl Orientation {
     pub const Y_ROTATIONS: [Orientation; 4] = Self::ROTATE_Y.angles();
     pub const Z_ROTATIONS: [Orientation; 4] = Self::ROTATE_Z.angles();
     
+    ////////////////////////////////////////////////////////////////
+    //                       Lookup Tables                        //
+    ////////////////////////////////////////////////////////////////
+    
+    const INVERT_TABLE: CachePadded<[Self; 192]> = {
+        let mut table = CachePadded::new([Self::UNORIENTED; 192]);
+        let mut orient_int = 0u8;
+        while orient_int < 192 {
+            let orientation = unsafe { Self::from_u8_unchecked(orient_int) };
+            table.value[orient_int as usize] = Self::UNORIENTED.deorient(orientation);
+            orient_int += 1;
+        }
+        table
+    };
+    
     /// Although it is more logical to cycle through [Rotation] before
     /// [Flip], it is more logical to have [Flip] in the lower bits of
     /// [Orientation] since [Rotation] max value is not a power of two.
     /// 
     /// This array is ordered by [Rotation] first, then [Flip], allowing
     /// for cycling through rotations before flips.
-    pub const ROTATION_ORDERED: [Self; Self::TOTAL_ORIENTATION_COUNT as usize] = {
-        let mut order = [Self(0); Self::TOTAL_ORIENTATION_COUNT as usize];
+    pub const ROTATION_ORDERED: CachePadded<[Self; 192]> = {
+        let mut order = CachePadded::new([Self::UNORIENTED; 192]);
         let mut flip = 0u8;
         let mut rotation = 0u8;
         let mut index = 0;
         loop {
             let orient_bits = flip | (rotation << 3);
-            let orient = Orientation(orient_bits);
-            order[index] = orient;
+            let orient = Orientation(unsafe { Orient::from_u8_unchecked(orient_bits) });
+            order.value[index] = orient;
             index += 1;
             if rotation == 23 {
                 if flip == 7 {
@@ -168,48 +200,39 @@ impl Orientation {
     }
     
     // `n <= 0` == `-N`, `n > 0` == `+N`
-    pub const fn corner_orientation(x: i32, y: i32, z: i32, angle: i32) -> Orientation {
-        let x = if x <= 0 {
-            0
-        } else {
-            1
-        } as usize;
-        let y = if y <= 0 {
-            0
-        } else {
-            1
-        } as usize;
-        let z = if z <= 0 {
-            0
-        } else {
-            1
-        } as usize;
+    #[inline]
+    pub const fn corner_orientation(x: Pol, y: Pol, z: Pol, angle: i32) -> Orientation {
         let angle = angle.rem_euclid(3) as usize;
-        Self::CORNER_ORIENTATIONS_MATRIX[y][z][x][angle]
+        Self::CORNER_ORIENTATIONS_MATRIX[y as usize][z as usize][x as usize][angle]
     }
 
     #[inline(always)]
     pub const fn new(rotation: Rotation, flip: Flip) -> Self {
-        Self(pack_flip_and_rotation(flip, rotation))
+        Self(unsafe { Orient::from_u8_unchecked(pack_flip_and_rotation(flip, rotation)) })
     }
     
     #[inline(always)]
     pub const unsafe fn from_u8_unchecked(value: u8) -> Self {
-        Self(value)
+        Self(unsafe { Orient::from_u8_unchecked(value) })
+    }
+    
+    #[inline(always)]
+    pub const fn from_u8_wrapping(value: u8) -> Self {
+        Self(Orient::from_u8_wrapping(value))
     }
     
     #[inline(always)]
     pub const fn from_u8(value: u8) -> Option<Self> {
-        if value > Self::MAX.0 {
+        if value > Self::MAX.0 as u8 {
             return None;
         }
         // SAFETY: guard clause ensures that u8 is not invalid.
         Some(unsafe { Self::from_u8_unchecked(value) })
     }
     
-    #[inline]
-    pub const fn to_u8(self) -> u8 {
-        self.0
+    #[inline(always)]
+    pub const fn as_u8(self) -> u8 {
+        self.0 as u8
     }
     
     #[inline]
@@ -218,9 +241,54 @@ impl Orientation {
             flip_x: self.flip().x(),
             flip_y: self.flip().y(),
             flip_z: self.flip().z(),
-            angle: (self.rotation().angle() & Rotation::ANGLE_MASK_I32) as u8,
+            angle: self.rotation().angle() as u8,
             up: self.rotation().up(),
         }
+    }
+    
+    #[inline(always)]
+    pub const fn canonical_group(self) -> u8 {
+        // Conveniently, the canonical group index can be gotten by shifting the flip index right by one.
+        // This is a bit finicky, and could break if I decide to modify the order of flip bits, but that's unlikely.
+        (self.0 as u8 & 0b110) >> 1
+    }
+    
+    #[inline(always)]
+    pub const fn is_canonical(self) -> bool {
+        self.canonical_group() == 0
+    }
+    
+    // TODO: If you use Z instead of X for the canonical niche, you can use 0b11 instead of 0b110 to get the canonical group
+    // ::::: and get the canonical index with `>> 2`
+    // TODO: mostly verified, but this should still be tested.
+    #[inline(always)]
+    pub const fn canonicalize(self) -> Self {
+        const CANONICAL_TABLE: CachePadded<[Orientation; 192]> = {
+            const fn canonicalize_slow(orient: Orientation) -> Orientation {
+                const CANON1: Orientation = Orientation::new(Rotation::new(Direction::NegY, 2), Flip::XY);
+                const CANON2: Orientation = Orientation::new(Rotation::new(Direction::PosY, 2), Flip::XZ);
+                const CANON3: Orientation = Orientation::new(Rotation::new(Direction::NegY, 0), Flip::YZ);
+                match orient.flip() {
+                    Flip::NONE => orient,
+                    Flip::X => orient,
+                    Flip::Y => orient.reorient(CANON1),
+                    Flip::XY => orient.reorient(CANON1),
+                    Flip::Z => orient.reorient(CANON2),
+                    Flip::XZ => orient.reorient(CANON2),
+                    Flip::YZ => orient.reorient(CANON3),
+                    Flip::XYZ => orient.reorient(CANON3),
+                }
+            }
+            let mut table = CachePadded::new([Orientation::UNORIENTED; 192]);
+            let mut orient_i = 0u8;
+            while orient_i < 192 {
+                let orient = unsafe { Orientation::from_u8_unchecked(orient_i) };
+                table.value[orient_i as usize] = canonicalize_slow(orient);
+                orient_i += 1;
+            }
+            table
+        };
+        CANONICAL_TABLE.value[self.0 as usize]
     }
     
     // verified (2025-12-28)
@@ -258,40 +326,40 @@ impl Orientation {
 
     #[inline(always)]
     pub const fn flip(self) -> Flip {
-        Flip::from_u8_wrapping(self.0)
+        unsafe { Flip::from_u8_unchecked(self.0 as u8 & 0b111) }
     }
     
     #[inline(always)]
     pub const fn flipped(self, flip: Flip) -> Self {
-        Self(self.0 ^ flip.0 as u8)
+        Self(unsafe { Orient::from_u8_unchecked(self.0 as u8 ^ flip.0 as u8) })
     }
 
     #[inline(always)]
     pub const fn rotation(self) -> Rotation {
         // SAFETY: Here, we assume that `self` is a valid Orientation.
-        unsafe { Rotation::from_u8_unchecked(self.0 >> 3) }
+        unsafe { Rotation::from_u8_unchecked(self.0 as u8 >> 3) }
     }
 
     #[inline]
     pub const fn set_flip(&mut self, flip: Flip) {
-        self.0 = (self.0 & 0b11111000) | flip.0 as u8
+        self.0 = unsafe { Orient::from_u8_unchecked((self.0 as u8 & 0b11111000) | flip.0 as u8) };
     }
     
     #[inline]
     pub const fn reset_flip(&mut self) {
-        self.0 &= 0b11111000;
+        self.0 = unsafe { Orient::from_u8_unchecked(self.0 as u8 & 0b11111000) };
     }
     
     // TODO: set_flip_x, set_flip_y, set_flip_z, set_flip_xy, set_flip_xz, set_flip_yz, set_flip_xyz
 
     #[inline]
     pub const fn set_rotation(&mut self, rotation: Rotation) {
-        self.0 = (self.0 & 0b111) | ((rotation.0 as u8) << 3);
+        self.0 = unsafe { Orient::from_u8_unchecked((self.0 as u8 & 0b111) | ((rotation.0 as u8) << 3)) };
     }
     
     #[inline]
     pub const fn reset_rotation(&mut self) {
-        self.0 &= 0b111;
+        self.0 = unsafe { Orient::from_u8_unchecked(self.0 as u8 & 0b111) };
     }
 
     #[inline]
@@ -317,14 +385,14 @@ impl Orientation {
     #[inline]
     pub const fn cycle(self, offset: i32) -> Self {
         // Here, we assume that `self` has a valid bit representation.
-        Self((self.0 as i64 + offset as i64).rem_euclid(Self::TOTAL_ORIENTATION_COUNT as i64) as u8)
+        Self(unsafe { Orient::from_u8_unchecked((self.0 as i64 + offset as i64).rem_euclid(Self::TOTAL_ORIENTATION_COUNT as i64) as u8) })
     }
     
     #[inline]
     pub const fn cycle_rotation_first(self, offset: i32) -> Self {
         let index = self.flip().0 as i64 * 24 + self.rotation().0 as i64;
         let offset_index = (index + offset as i64).rem_euclid(Self::TOTAL_ORIENTATION_COUNT as i64) as usize;
-        Self::ROTATION_ORDERED[offset_index]
+        Self::ROTATION_ORDERED.value[offset_index]
     }
     
     /// Keeps the [Flip], but cycles through [Rotation].
@@ -338,7 +406,7 @@ impl Orientation {
     /// If you would like a version that cycles the rotations before cycling the flips, use [Orientation::iter_rotation_order].
     #[inline]
     pub fn iter(self) -> impl Iterator<Item = Self> {
-        (0..Self::TOTAL_ORIENTATION_COUNT).map(move |i| Self(i))
+        (0..Self::TOTAL_ORIENTATION_COUNT).map(move |i| Self(unsafe { Orient::from_u8_unchecked(i) }))
     }
     
     /// Cycle through the 24 [Rotation] states before cycling through the 8 [Flip] states.
@@ -470,24 +538,8 @@ impl Orientation {
     
     #[inline]
     pub const fn reorient_local(self, orientation: Orientation) -> Self {
-        // I'm pretty sure my logic is correct. It should be that you first orient into local space then orient.
-        /*
-        stage1 = target * orientation
-        stage2 = stage1 * target
-        result = target * stage2
-        */
-        // wtf... how does this work?
+        orientation.reorient(self)
         
-        /*
-        stage1 = orientation.reorient(self)
-        stage2 = self.reorient(stage1)
-        self.reorient(stage2)
-        
-        */
-        // TODO: Fully verify this.
-        let stage1 = orientation.reorient(self);
-        let stage2 = self.reorient(stage1);
-        self.reorient(stage2)
     }
 
     /// Remove an orientation from an orientation.
@@ -509,15 +561,14 @@ impl Orientation {
     
     #[inline]
     pub const fn deorient_local(self, orientation: Orientation) -> Self {
-        let stage1 = self.reorient(orientation);
-        let stage2 = stage1.reorient(self);
-        self.deorient(stage2)
+        orientation.invert().reorient(self)
     }
     
     /// Returns the orientation that can be applied to deorient by [self].
     #[inline]
     pub const fn invert(self) -> Self {
-        Orientation::UNORIENTED.deorient(self)
+        // Orientation::UNORIENTED.deorient(self)
+        Self::INVERT_TABLE.value[self.0 as usize]
     }
     
     /// Flip the [Orientation] along the `X` axis.
@@ -566,6 +617,11 @@ impl Orientation {
     pub const fn rotate_x(self, angle: i32) -> Self {
         self.reorient(Orientation::X_ROTATIONS[wrap_angle(angle) as usize])
     }
+    
+    #[inline]
+    pub const fn rotate_local_x(self, angle: i32) -> Self {
+        self.reorient_local(Orientation::X_ROTATIONS[wrap_angle(angle) as usize])
+    }
 
     #[inline]
     pub const fn rotate_y(self, angle: i32) -> Self {
@@ -573,8 +629,18 @@ impl Orientation {
     }
 
     #[inline]
+    pub const fn rotate_local_y(self, angle: i32) -> Self {
+        self.reorient_local(Orientation::Y_ROTATIONS[wrap_angle(angle) as usize])
+    }
+
+    #[inline]
     pub const fn rotate_z(self, angle: i32) -> Self {
         self.reorient(Orientation::Z_ROTATIONS[wrap_angle(angle) as usize])
+    }
+
+    #[inline]
+    pub const fn rotate_local_z(self, angle: i32) -> Self {
+        self.reorient_local(Orientation::Z_ROTATIONS[wrap_angle(angle) as usize])
     }
 
     /// Rotate `face` clockwise by `angle`. Use a negative `angle` to rotate counter-clockwise.
@@ -585,11 +651,23 @@ impl Orientation {
     }
 
     #[inline]
-    pub const fn rotate_corner(self, x: i32, y: i32, z: i32, angle: i32) -> Self {
+    pub const fn rotate_local_face(self, face: Direction, angle: i32) -> Self {
+        let orient = Self::face_orientation(face, angle);
+        self.reorient_local(orient)
+    }
+
+    #[inline]
+    pub const fn rotate_corner(self, x: Pol, y: Pol, z: Pol, angle: i32) -> Self {
         let orient = Self::corner_orientation(x, y, z, angle);
         self.reorient(orient)
     }
 
+    #[inline]
+    pub const fn rotate_local_corner(self, x: Pol, y: Pol, z: Pol, angle: i32) -> Self {
+        let orient = Self::corner_orientation(x, y, z, angle);
+        self.reorient_local(orient)
+    }
+    
     // #[inline]
     // pub fn to_matrix(self) -> glam::Mat4 {
     //     let flip = self.flip();
@@ -616,7 +694,7 @@ impl Orientation {
 impl Into<u8> for Orientation {
     #[inline]
     fn into(self) -> u8 {
-        self.0
+        self.0 as u8
     }
 }
 

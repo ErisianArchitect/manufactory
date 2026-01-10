@@ -1,6 +1,6 @@
 // Last Reviewed: (2025-12-28)
 
-use crate::direction::Direction;
+use crate::{direction::Direction, polarity::Pol};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -27,5 +27,10 @@ impl Axis {
             Axis::Y => Direction::NegY,
             Axis::Z => Direction::NegZ,
         }
+    }
+    
+    #[inline]
+    pub const fn with_polarity(self, pol: Pol) -> Direction {
+        Direction::from_polar_axis(pol, self)
     }
 }
