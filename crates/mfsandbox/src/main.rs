@@ -1,10 +1,9 @@
+use std::time::Instant;
+
 use mfhash::{HashSeed, deterministic::DeterministicHash};
 use mffmt::hex::HexBytes as Hex;
 
-fn quick_test() {
-    
-}
-
+#[allow(unused)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum U7Niche {
@@ -167,9 +166,6 @@ pub struct NichePacking<const LEN: usize, A> {
     _mem: [u8; LEN],
 }
 
-const fn fix_array_len(len: usize) -> usize {
-  len - 1
-}
 
 #[cfg(target_endian = "little")]
 #[repr(C)]
@@ -216,34 +212,82 @@ impl u31 {
     }
 }
 
-const SIZE: usize = size_of::<Option<u31>>();
+// const SIZE: usize = size_of::<Option<u31>>();
+macro_rules! jank {($($tokens:tt)*) => {};}
+
+const FOO_MAGIC: &'static [u8] = b"_foofoo_";
+
+const PAGE_SIZE: u64 = 4096;
+
+
+jank!(
+    // `jank` uses a DSL to define a file type and associated data.
+    // Here, we define an associated type for this file type.
+    // This is going to be a `File` type, which means that the content inside the braces will use
+    // file type declaration syntax.
+    struct Foo(File) {
+        // setting the `size` to `4096` enforces that the total size cannot exceed 4096 bytes, and that
+        // pad bytes will be added to make the total size 4096 if it is less than 4096 bytes.
+        // content inside `${}`, `$()`, `${}`, or `$<>` are treated as special syntax.
+        // - `$()`: Rust Eval. Inner tokens are treated as a Rust expression.
+        // - `${}`: jank eval. Inner tokens are treated as a jank expression.
+        layout {
+            header[size=$(PAGE_SIZE)] {
+                // const is used to insert exact data into the file. This data must be known at compile time.
+                // Common acceptable types:
+                // - byte array
+                // - string
+                // - 
+                const[size=8] b"_header_";
+                const[size=8] $(FOO_MAGIC);
+                // using `reserve` is like a contract saying that this space might eventually be used for something.
+                // The space is reserved so that future versions of the engine can still be compatible with old versions of the file.
+                reserve(16);
+                // In this example, the checksum would be calculated by the user. I can't currently think of how I could handle a checksum system.
+                priv checksum: [u8; 32] = ${
+                    build_checksum(
+                        
+                    )
+                },
+            }
+            footer[size=$(PAGE_SIZE)] {
+                
+            }
+        }
+    }
+);
 
 fn main() {
-
-    let value = u31::new_truncated(123456789);
-    let opt = Some(value);
-    let val_u32: u32 = unsafe { ::core::mem::transmute(opt) };
-    println!("{}\n{val_u32}", value.get());
-    assert_eq!(val_u32, value.get());
-    assert_eq!(
-        size_of::<u32>(),
-        size_of::<u31>(),
-    );
-    assert_eq!(
-        size_of::<u31>(),
-        size_of::<Option<u31>>(),
-    );
-    assert_eq!(
-        size_of::<u31>(),
-        size_of::<Option<Option<Option<Option<u31>>>>>(),
-    );
-    return;
-    let seed = HashSeed::derived("This is a test.");
-    let mut hasher = seed.build_hasher();
-    let value = ([1, 2, 3], "apple");
-    value.deterministic_hash(&mut hasher);
-    let hash = hasher.finalize_u128();
-    let hash_bytes: [u8; 16] = hasher.finalize_bytes();
-    println!("{hash:032x}");
-    println!("{}", Hex(&hash_bytes));
+    let mut items = vec![1234u64; 4096];
+    let expected_len = items.len() + 1;
+    let timer = Instant::now();
+    items.insert(0, 42069u64);
+    let elapsed = timer.elapsed();
+    assert_eq!(items.len(), expected_len);
+    println!("Elapsed: {elapsed:.3?}");
+    // let value = u31::new_truncated(123456789);
+    // let opt = Some(value);
+    // let val_u32: u32 = unsafe { ::core::mem::transmute(opt) };
+    // println!("{}\n{val_u32}", value.get());
+    // assert_eq!(val_u32, value.get());
+    // assert_eq!(
+    //     size_of::<u32>(),
+    //     size_of::<u31>(),
+    // );
+    // assert_eq!(
+    //     size_of::<u31>(),
+    //     size_of::<Option<u31>>(),
+    // );
+    // assert_eq!(
+    //     size_of::<u31>(),
+    //     size_of::<Option<Option<Option<Option<u31>>>>>(),
+    // );
+    // let seed = HashSeed::derived("This is a test.");
+    // let mut hasher = seed.build_hasher();
+    // let value = ([1, 2, 3], "apple");
+    // value.deterministic_hash(&mut hasher);
+    // let hash = hasher.finalize_u128();
+    // let hash_bytes: [u8; 16] = hasher.finalize_bytes();
+    // println!("{hash:032x}");
+    // println!("{}", Hex(&hash_bytes));
 }
